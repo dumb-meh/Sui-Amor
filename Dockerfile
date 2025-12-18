@@ -27,6 +27,6 @@ RUN mkdir -p static/edited_images temp_images
 EXPOSE 9013
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:9013/ || exit 1
+    CMD curl -f http://localhost:8000/ || exit 1
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9013", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

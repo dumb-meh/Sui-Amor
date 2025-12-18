@@ -4,7 +4,7 @@ import json
 import os
 from typing import List, Optional
 from app.core.config import settings
-from app.services.chat.chatbot_schema import HistoryItem
+from app.services.affirmation.affirmation_schema import HistoryItem
 
 class SessionCacheManager:
     def __init__(self):

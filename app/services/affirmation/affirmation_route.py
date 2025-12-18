@@ -6,18 +6,18 @@ router = APIRouter()
 affirmation= Affirmation()     
 
 @router.post("/daily_affirmation", response_model=affirmation_response)
-async def  get_affirmation():
+async def  get_affirmation(request: affirmation_request):
     try:
-        response = affirmation.get_daily_affirmation()
+        response = affirmation.get_daily_affirmation(user_id=request.user_id)
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/monthly_affirmation", response_model=affirmation_response)
-async def  get_affirmation():
+async def  get_affirmation(request: affirmation_request):
     try:
-        response = affirmation.get_monthly_affirmation()
+        response = affirmation.get_monthly_affirmation(user_id=request.user_id)
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

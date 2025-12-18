@@ -16,25 +16,32 @@ class _AffirmationCache:
         self.directory = directory
         self.max_items = max_items
         self.directory.mkdir(parents=True, exist_ok=True)
-        self._file = self.directory / "history.json"
 
-    def _read(self) -> List[str]:
-        if self._file.exists():
+    def _safe_user_file(self, user_id: str | None) -> Path:
+        if not user_id:
+            return self.directory / "history.json"
+        sanitized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in user_id)
+        return self.directory / f"{sanitized}.json"
+
+    def _read(self, user_id: str | None) -> List[str]:
+        file_path = self._safe_user_file(user_id)
+        if file_path.exists():
             try:
-                return json.loads(self._file.read_text(encoding="utf-8"))
+                return json.loads(file_path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 return []
         return []
 
-    def is_recent(self, text: str) -> bool:
-        history = self._read()
+    def is_recent(self, text: str, user_id: str | None) -> bool:
+        history = self._read(user_id)
         return text in history[-self.max_items :]
 
-    def remember(self, text: str) -> None:
-        history = self._read()
+    def remember(self, text: str, user_id: str | None) -> None:
+        file_path = self._safe_user_file(user_id)
+        history = self._read(user_id)
         history.append(text)
         history = history[-self.max_items :]
-        self._file.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
+        file_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
 
 
 class Affirmation:
@@ -44,9 +51,9 @@ class Affirmation:
         self._daily_cache = _AffirmationCache(base_cache_dir / "daily", max_items=15)
         self._monthly_cache = _AffirmationCache(base_cache_dir / "monthly", max_items=5)
 
-    def get_daily_affirmation(self) -> affirmation_response:
+    def get_daily_affirmation(self, user_id: str | None = None) -> affirmation_response:
         prompt = self.create_prompt()
-        affirmation = self._generate_unique_affirmation(prompt, self._daily_cache)
+        affirmation = self._generate_unique_affirmation(prompt, self._daily_cache, user_id)
         return affirmation_response(affirmation=affirmation)
 
     def create_prompt(self) -> str:
@@ -56,9 +63,9 @@ class Affirmation:
             "Use warm, modern language and return only the affirmation sentence."
         )
 
-    def get_monthly_affirmation(self, input_data: dict) -> affirmation_response:
+    def get_monthly_affirmation(self, user_id: str | None = None) -> affirmation_response:
         prompt = self.create_monthly_prompt()
-        affirmation = self._generate_unique_affirmation(prompt, self._monthly_cache)
+        affirmation = self._generate_unique_affirmation(prompt, self._monthly_cache, user_id)
         return affirmation_response(affirmation=affirmation)
 
     def create_monthly_prompt(self) -> str:
@@ -76,13 +83,18 @@ class Affirmation:
         )
         return completion.choices[0].message.content.strip()
 
-    def _generate_unique_affirmation(self, prompt: str, cache: _AffirmationCache) -> str:
+    def _generate_unique_affirmation(
+        self,
+        prompt: str,
+        cache: _AffirmationCache,
+        user_id: str | None,
+    ) -> str:
         candidate = ""
         for _ in range(5):
             candidate = self.get_openai_response(prompt)
-            if candidate and not cache.is_recent(candidate):
-                cache.remember(candidate)
+            if candidate and not cache.is_recent(candidate, user_id):
+                cache.remember(candidate, user_id)
                 return candidate
         if candidate:
-            cache.remember(candidate)
+            cache.remember(candidate, user_id)
         return candidate

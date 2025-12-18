@@ -1,36 +1,16 @@
 services:
   app:
     build: .
-    container_name: studybuddy_app
-    expose:
-      - "9013"
+    container_name: suiamor_app
+    ports:
+      - "8000:8000"
     env_file:
       - .env
     volumes:
       - .:/app
     restart: unless-stopped
-    networks:
-      - studybuddy_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9013/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-  nginx:
-    image: nginx:alpine
-    container_name: studybuddy_nginx
-    ports:
-      - "9014:9014"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      app:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - studybuddy_network
-
-networks:
-  studybuddy_network:
-    driver: bridge
