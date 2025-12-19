@@ -56,8 +56,10 @@ class QuizEvaluation:
         response = self.client.embeddings.create(model="text-embedding-3-large", input=[text])
         return response.data[0].embedding
 
-    def _format_vector_results(self, results: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, str]]]:
+    def _format_vector_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
         grouped: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+        profile_tags_set = set()
+        
         for item in results:
             group = item.get("type")
             if group not in {"synergies", "harmonies", "resonances", "polarities"}:
@@ -69,11 +71,40 @@ class QuizEvaluation:
                     "description": item.get("description", ""),
                 }
             )
+            
+            # Extract profile tags from qualities, themes, and other relevant fields
+            qualities = item.get("qualities", [])
+            themes = item.get("themes", [])
+            
+            # Add qualities as profile tags
+            if isinstance(qualities, list):
+                for quality in qualities:
+                    if isinstance(quality, str) and quality.strip():
+                        profile_tags_set.add(quality.strip().lower())
+            
+            # Add themes as profile tags
+            if isinstance(themes, list):
+                for theme in themes:
+                    if isinstance(theme, str) and theme.strip():
+                        profile_tags_set.add(theme.strip().lower())
+            
+            # Extract tags from attributes if they exist
+            attributes = item.get("attributes", {})
+            if isinstance(attributes, dict):
+                for key, value in attributes.items():
+                    if isinstance(value, str) and value.strip():
+                        # Add attribute values as potential profile tags
+                        profile_tags_set.add(value.strip().lower())
+        
+        # Convert set to sorted list for consistent output
+        profile_tags = sorted(list(profile_tags_set))
+        
         return {
             "synergies": {"items": grouped.get("synergies", [])},
             "harmonies": {"items": grouped.get("harmonies", [])},
             "resonances": {"items": grouped.get("resonances", [])},
             "polarities": {"items": grouped.get("polarities", [])},
+            "profile_tags": profile_tags,
         }
     
 

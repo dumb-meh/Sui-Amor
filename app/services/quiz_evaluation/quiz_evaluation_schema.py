@@ -10,3 +10,4 @@ class QuizEvaluationResponse(BaseModel):
     harmonies: Dict[str, Any]
     resonances: Dict[str, Any]
     polarities: Dict[str, Any]
+    profile_tags: List[str]
