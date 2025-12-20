@@ -1,6 +1,7 @@
+import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 import chromadb
 
@@ -13,16 +14,35 @@ class AlignmentsVectorStore:
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         self.collection_name = collection_name
         self._client = chromadb.PersistentClient(path=str(self.persist_dir))
-        self._collection = self._client.get_or_create_collection(name=self.collection_name, metadata={"hnsw:space": "cosine"})
+        self._collection = None
 
     @property
     def collection(self):
-        return self._collection
+        return self._get_collection()
 
     def reset(self) -> None:
         """Drop and recreate the collection."""
-        self._client.delete_collection(self.collection_name)
-        self._collection = self._client.create_collection(name=self.collection_name, metadata={"hnsw:space": "cosine"})
+        try:
+            self._client.delete_collection(name=self.collection_name)
+        except Exception:
+            # Ignore if the collection does not already exist
+            pass
+        self._collection = None
+
+    def _get_collection(self):
+        if self._collection is None:
+            self._collection = self._client.get_or_create_collection(name=self.collection_name, metadata={"hnsw:space": "cosine"})
+        return self._collection
+
+    def _run_with_collection(self, operation: Callable):
+        try:
+            return operation(self._get_collection())
+        except Exception as error:
+            message = str(error).lower()
+            if "does not exist" in message or "not found" in message:
+                self._collection = None
+                return operation(self._get_collection())
+            raise
 
     def upsert(self, *, records: Sequence[Dict[str, Any]], embeddings: Sequence[Sequence[float]]) -> None:
         if not records:
@@ -33,14 +53,14 @@ class AlignmentsVectorStore:
         for record in records:
             record_id = record.get("id") or str(uuid.uuid4())
             ids.append(record_id)
-            metadatas.append({k: v for k, v in record.items() if k not in {"id", "embedding_text"}})
+            metadatas.append(_normalize_metadata(record))
             documents.append(record.get("embedding_text", ""))
-        self._collection.upsert(ids=ids, embeddings=list(embeddings), documents=documents, metadatas=metadatas)
+        self._run_with_collection(lambda collection: collection.upsert(ids=ids, embeddings=list(embeddings), documents=documents, metadatas=metadatas))
 
     def query(self, *, embedding: Sequence[float], limit: int) -> List[Dict[str, Any]]:
         if limit <= 0:
             return []
-        results = self._collection.query(query_embeddings=[list(embedding)], n_results=limit)
+        results = self._run_with_collection(lambda collection: collection.query(query_embeddings=[list(embedding)], n_results=limit))
         metadatas = results.get("metadatas", [[]])[0]
         ids = results.get("ids", [[]])[0]
         distances = results.get("distances", [[]])[0]
@@ -54,7 +74,7 @@ class AlignmentsVectorStore:
         return payload
 
     def get_all(self) -> List[Dict[str, Any]]:
-        results = self._collection.get()
+        results = self._run_with_collection(lambda collection: collection.get())
         metadatas = results.get("metadatas", [])
         ids = results.get("ids", [])
         documents = results.get("documents", [])
@@ -65,3 +85,22 @@ class AlignmentsVectorStore:
             entry["embedding_text"] = documents[idx]
             payload.append(entry)
         return payload
+
+
+def _normalize_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for key, value in record.items():
+        if key in {"id", "embedding_text"}:
+            continue
+        normalized[key] = _normalize_value(value)
+    return normalized
+
+
+def _normalize_value(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, (list, tuple, set)):
+        return json.dumps(list(value), ensure_ascii=False)
+    return str(value)

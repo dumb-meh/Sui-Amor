@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
+import json
 import openai
 import pandas as pd
 
@@ -34,6 +35,7 @@ class AlignmentIngestionService:
             return {"records": 0}
         if reset_collection:
             self.vector_store.reset()
+        self._ensure_unique_ids(all_records)
         embeddings = [self._embed_text(record["embedding_text"]) for record in all_records]
         self.vector_store.upsert(records=all_records, embeddings=embeddings)
         by_type = _count_by_type(all_records)
@@ -123,12 +125,22 @@ class AlignmentIngestionService:
             "core_essence": core_essence,
             "realm": context.get("realm"),
             "environment": context.get("environment"),
-            "themes": context.get("themes", []),
-            "qualities": context.get("qualities", []),
-            "attributes": context.get("attributes", {}),
+            "themes": _stringify_metadata(context.get("themes")),
+            "qualities": _stringify_metadata(context.get("qualities")),
+            "attributes": _stringify_metadata(context.get("attributes")),
             "embedding_text": embedding_text,
         }
         return metadata
+
+    def _ensure_unique_ids(self, records: List[Dict[str, Any]]) -> None:
+        seen: Dict[str, int] = {}
+        for record in records:
+            base_id = record.get("id") or "record"
+            count = seen.get(base_id, 0) + 1
+            seen[base_id] = count
+            if count == 1:
+                continue
+            record["id"] = f"{base_id}-{count}"
 
     def _infer_type_from_title(self, title: str) -> str | None:
         title = title.lower()
@@ -200,3 +212,13 @@ def _count_by_type(records: Iterable[Dict[str, Any]]) -> Dict[str, int]:
         if record_type in counts:
             counts[record_type] += 1
     return counts
+
+
+def _stringify_metadata(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, (list, tuple, set)):
+        return json.dumps(list(value), ensure_ascii=False)
+    return str(value)
