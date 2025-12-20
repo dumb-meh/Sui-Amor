@@ -22,7 +22,8 @@ USER appuser
 
 COPY --chown=appuser:appuser . .
 
-RUN mkdir -p static/edited_images temp_images
+RUN mkdir -p .chroma app/services/affirmation/cache && \
+    chmod -R u+rw .chroma app/services/affirmation/cache
 
 EXPOSE 9013
 
