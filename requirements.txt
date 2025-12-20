@@ -13,3 +13,4 @@ uvicorn
 pydantic_settings
 pandas
 chromadb
+openpyxl
