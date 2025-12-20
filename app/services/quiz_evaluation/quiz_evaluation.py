@@ -1,6 +1,5 @@
 import json
 import os
-from collections import defaultdict
 from typing import Any, Dict, List
 
 import openai
@@ -26,9 +25,10 @@ class QuizEvaluation:
         prompt = self.create_prompt(request)
         vector_results = self.get_openai_response(prompt)
         payload = self._reason_over_results(prompt, vector_results)
-        if not payload or not self._has_recommendations(payload):
-            payload = self._format_vector_results(vector_results)
+        if not payload:
+            raise ValueError("Quiz reasoning returned no response")
         shaped = self._ensure_response_shape(payload)
+        self._assert_recommendations(shaped)
         return QuizEvaluationResponse(**shaped)
 
     def create_prompt(self, request: QuizEvaluationRequest | None = None) -> str:
@@ -77,18 +77,25 @@ class QuizEvaluation:
                     "attributes": self._coerce_dict(item.get("attributes")),
                 }
             )
-        system_prompt = (
-            "You analyze quiz answers and candidate Sui Amor alignments to curate recommendations. "
-            "Always produce valid JSON matching the schema with keys synergies, harmonies, resonances, polarities (each with an items list) and profile_tags. "
-            "Prefer providing at least one item per group when suitable candidates exist."
-        )
+            system_prompt = """You are an expert Sui Amor guide. Given quiz answers and candidate alignments, craft tailored combinations.
+You MUST return valid JSON matching this exact structure:
+
+{
+  "synergies": {"items": [{"id": "...", "title": "...", "description": "..."}]},
+  "harmonies": {"items": [{"id": "...", "title": "...", "description": "..."}]},
+  "resonances": {"items": [{"id": "...", "title": "...", "description": "..."}]},
+  "polarities": {"items": [{"id": "...", "title": "...", "description": "..."}]},
+  "profile_tags": ["tag1", "tag2", "tag3"]
+}
+
+Unless no candidates are remotely relevant, provide at least one item per alignment type. Limit profile_tags to 10 concise lowercase tags that capture the user's vibe based on the vector result provided."""
         user_payload = {
-            "quiz_answers": quiz_prompt,
+                "quiz_prompt": quiz_prompt,
+                "quiz_data": self._last_quiz_data,
             "candidates": candidates,
             "instructions": {
-                "select_items": "Pick up to 3 relevant items per alignment type ordered by fit. If no candidates match, leave the list empty.",
-                "fields_required": ["id", "title", "description"],
-                "profile_tags": "Return a lowercase list of distinctive qualities, themes, or attributes that characterize the user based on the chosen recommendations.",
+                    "select_items": "Choose up to 3 items per alignment type; use the exact id, title, and description from candidates.",
+                    "profile_tags": "Return up to 10 concise lowercase tags that capture the user's vibe based on answers and selections.",
             },
         }
         try:
@@ -108,53 +115,6 @@ class QuizEvaluation:
             return None
         return None
 
-    def _format_vector_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        grouped: Dict[str, List[Dict[str, str]]] = defaultdict(list)
-        profile_tags_set = set()
-        
-        for item in results:
-            group = item.get("type")
-            if group not in {"synergies", "harmonies", "resonances", "polarities"}:
-                continue
-            grouped[group].append(
-                {
-                    "id": item.get("id", ""),
-                    "title": item.get("title") or item.get("full_title") or "",
-                    "description": item.get("description", ""),
-                }
-            )
-            
-            # Extract profile tags from qualities, themes, and other relevant fields
-            qualities = self._coerce_list(item.get("qualities"))
-            themes = self._coerce_list(item.get("themes"))
-            
-            # Add qualities as profile tags
-            for quality in qualities:
-                if quality.strip():
-                    profile_tags_set.add(quality.strip().lower())
-            
-            # Add themes as profile tags
-            for theme in themes:
-                if theme.strip():
-                    profile_tags_set.add(theme.strip().lower())
-            
-            # Extract tags from attributes if they exist
-            attributes = self._coerce_dict(item.get("attributes"))
-            for value in attributes.values():
-                if isinstance(value, str) and value.strip():
-                    profile_tags_set.add(value.strip().lower())
-        
-        # Convert set to sorted list for consistent output
-        profile_tags = sorted(list(profile_tags_set))
-        
-        return {
-            "synergies": {"items": grouped.get("synergies", [])},
-            "harmonies": {"items": grouped.get("harmonies", [])},
-            "resonances": {"items": grouped.get("resonances", [])},
-            "polarities": {"items": grouped.get("polarities", [])},
-            "profile_tags": profile_tags,
-        }
-
     def _ensure_response_shape(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         template = {
             "synergies": {"items": []},
@@ -169,7 +129,17 @@ class QuizEvaluation:
                 tags = payload.get(key, [])
                 if not isinstance(tags, list):
                     tags = [str(tags)] if tags else []
-                result[key] = [str(tag).lower() for tag in tags if str(tag).strip()]
+                unique_tags: List[str] = []
+                seen = set()
+                for tag in tags:
+                    normalized = str(tag).strip().lower()
+                    if not normalized or normalized in seen:
+                        continue
+                    unique_tags.append(normalized)
+                    seen.add(normalized)
+                    if len(unique_tags) >= 10:
+                        break
+                result[key] = unique_tags
                 continue
             section = payload.get(key, {})
             items = []
@@ -190,6 +160,15 @@ class QuizEvaluation:
                 )
             result[key] = {"items": normalized_items}
         return result
+
+    def _assert_recommendations(self, payload: Dict[str, Any]) -> None:
+        total = 0
+        for key in ("synergies", "harmonies", "resonances", "polarities"):
+            section = payload.get(key, {})
+            items = section.get("items", []) if isinstance(section, dict) else []
+            total += len(items)
+        if total == 0:
+            raise ValueError("Quiz reasoning returned no recommendations")
 
     def _coerce_list(self, value: Any) -> List[str]:
         if isinstance(value, list):
