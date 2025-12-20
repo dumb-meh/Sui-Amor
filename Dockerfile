@@ -16,14 +16,14 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-RUN adduser --disabled-password --gecos '' appuser && \
-    chown -R appuser:appuser /app
-USER appuser
-
-COPY --chown=appuser:appuser . .
+COPY . .
 
 RUN mkdir -p .chroma app/services/affirmation/cache && \
-    chmod -R u+rw .chroma app/services/affirmation/cache
+    chmod -R 777 .chroma app/services/affirmation/cache && \
+    adduser --disabled-password --gecos '' appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
 
 EXPOSE 9013
 
