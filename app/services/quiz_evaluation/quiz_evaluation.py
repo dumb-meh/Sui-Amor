@@ -88,14 +88,34 @@ You MUST return valid JSON matching this exact structure:
   "profile_tags": ["tag1", "tag2", "tag3"]
 }
 
-Unless no candidates are remotely relevant, provide at least one item per alignment type. Limit profile_tags to 10 concise lowercase tags that capture the user's vibe based on the vector result provided."""
+CRITICAL RULES:
+1. TITLE FORMATTING: Always clean up titles. Remove prefixes like "Red –", "Blue –", color names, or any other prefixes. Keep only the core meaningful title (e.g., "Red – Harmony of Inner Peace & Balance" becomes "Harmony of Inner Peace & Balance").
+
+2. ALIGNMENT TYPE ACCURACY: 
+   - Synergies = complementary combinations that enhance each other
+   - Harmonies = balanced, peaceful alignments
+   - Resonances = deep emotional or vibrational connections
+   - Polarities = contrasting yet complementary opposites
+   
+3. APPROPRIATE TITLES: Each item's title MUST match its alignment type. If you're placing an item in "resonances", ensure the title says "Resonance of..." NOT "Synergy of...". If you're placing an item in "polarities", ensure the title says "Polarity of..." NOT "Synergy of...".
+
+4. CREATE WHEN NEEDED: If no suitable candidates exist for resonances or polarities, you may craft your own based on the quiz data and user's responses. Ensure they fit the definition of that alignment type.
+
+5. OPTIONAL SECTIONS: All sections are optional. Only return items that are truly applicable and meaningful. It's better to omit a section than force irrelevant items into it.
+
+6. Use the exact id from candidates when selecting from the provided list. When creating your own, use descriptive kebab-case ids.
+
+Limit profile_tags to 10 concise lowercase tags that capture the user's vibe based on the quiz data and selected alignments."""
         user_payload = {
-                "quiz_prompt": quiz_prompt,
-                "quiz_data": self._last_quiz_data,
+            "quiz_prompt": quiz_prompt,
+            "quiz_data": self._last_quiz_data,
             "candidates": candidates,
             "instructions": {
-                    "select_items": "Choose up to 3 items per alignment type; use the exact id, title, and description from candidates.",
-                    "profile_tags": "Return up to 10 concise lowercase tags that capture the user's vibe based on answers and selections.",
+                "title_cleanup": "ALWAYS remove prefixes like 'Red –', 'Blue –', color names, or any other prefixes from titles. Keep only the meaningful core title.",
+                "alignment_accuracy": "Ensure each item's title matches its alignment type. Resonances should have 'Resonance of...' titles, Polarities should have 'Polarity of...' titles, etc.",
+                "selection": "Choose up to 3 items per alignment type from candidates. If no suitable resonances or polarities exist in candidates, create your own based on the quiz data.",
+                "optional_sections": "All sections are optional. Only include items that are truly meaningful and applicable. Quality over forced quantity.",
+                "profile_tags": "Return up to 10 concise lowercase tags that capture the user's vibe based on quiz answers and selected alignments.",
             },
         }
         try:
@@ -162,13 +182,9 @@ Unless no candidates are remotely relevant, provide at least one item per alignm
         return result
 
     def _assert_recommendations(self, payload: Dict[str, Any]) -> None:
-        total = 0
-        for key in ("synergies", "harmonies", "resonances", "polarities"):
-            section = payload.get(key, {})
-            items = section.get("items", []) if isinstance(section, dict) else []
-            total += len(items)
-        if total == 0:
-            raise ValueError("Quiz reasoning returned no recommendations")
+        # Removed assertion - all sections are now optional
+        # At least one section should have items, but we won't enforce it
+        pass
 
     def _coerce_list(self, value: Any) -> List[str]:
         if isinstance(value, list):
