@@ -21,7 +21,7 @@ class QuizEvaluation:
         self._last_quiz_data: List[Dict[str, Any]] = []
 
     def quiz_evaluation(self, request: QuizEvaluationRequest) -> QuizEvaluationResponse:
-        self._last_quiz_data = request.quiz_data or []
+        self._last_quiz_data = [answer.model_dump() for answer in request.answers] if request.answers else []
         prompt = self.create_prompt(request)
         vector_results = self.get_openai_response(prompt)
         payload = self._reason_over_results(prompt, vector_results)
@@ -32,24 +32,8 @@ class QuizEvaluation:
         return QuizEvaluationResponse(**shaped)
 
     def create_prompt(self, request: QuizEvaluationRequest | None = None) -> str:
-        data = request.quiz_data if request else self._last_quiz_data
-        lines: List[str] = []
-        for item in data:
-            if isinstance(item, dict):
-                for question, answer in item.items():
-                    question_text = str(question).strip()
-                    answer_text = str(answer).strip()
-                    if question_text and answer_text:
-                        lines.append(f"{question_text}: {answer_text}")
-                    elif question_text:
-                        lines.append(question_text)
-                    elif answer_text:
-                        lines.append(answer_text)
-            else:
-                text = str(item).strip()
-                if text:
-                    lines.append(text)
-        return "\n".join(lines).strip()
+        data = [answer.model_dump() for answer in request.answers] if request and request.answers else self._last_quiz_data
+        return json.dumps({"answers": data}, ensure_ascii=False)
 
     def get_openai_response(self, prompt: str) -> List[Dict[str, Any]]:
         if not prompt:
@@ -78,6 +62,13 @@ class QuizEvaluation:
                 }
             )
             system_prompt = """You are an expert Sui Amor guide. Given quiz answers and candidate alignments, craft tailored combinations.
+
+You will receive quiz data containing an array of answers. Each answer object has a question field. The user's responses can be provided in two ways:
+1. Simple answers: An 'answers' array containing one or more string values the user selected
+2. Hierarchical answers: A 'sub_questions' array where each sub-question has its own 'sub_question' text and 'sub_answers' array showing what the user selected within that category
+
+Some questions may have only simple answers, some only sub-questions, and both fields are optional.
+
 You MUST return valid JSON matching this exact structure:
 
 {
