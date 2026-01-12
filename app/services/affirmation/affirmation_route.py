@@ -3,21 +3,14 @@ from .affirmation import Affirmation
 from .affirmation_schema import affirmation_response, affirmation_request
 
 router = APIRouter()
-affirmation= Affirmation()     
+affirmation = Affirmation()
 
-@router.post("/daily_affirmation", response_model=affirmation_response)
-async def  get_affirmation(request: affirmation_request):
+
+@router.post("/generate_affirmations", response_model=affirmation_response)
+async def generate_affirmations(request: affirmation_request):
+    """Generate 12 affirmations based on quiz data and alignments."""
     try:
-        response = affirmation.get_daily_affirmation(user_id=request.user_id)
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/monthly_affirmation", response_model=affirmation_response)
-async def  get_affirmation(request: affirmation_request):
-    try:
-        response = affirmation.get_monthly_affirmation(user_id=request.user_id)
+        response = affirmation.generate_affirmations(request)
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

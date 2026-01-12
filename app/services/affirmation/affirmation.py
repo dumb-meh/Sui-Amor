@@ -1,100 +1,98 @@
 import json
 import os
-from pathlib import Path
-from typing import List
+from typing import Any, Dict
 
 import openai
 from dotenv import load_dotenv
 
-from .affirmation_schema import affirmation_response
+from .affirmation_schema import affirmation_request, affirmation_response
 
 load_dotenv()
-
-
-class _AffirmationCache:
-    def __init__(self, directory: Path, max_items: int) -> None:
-        self.directory = directory
-        self.max_items = max_items
-        self.directory.mkdir(parents=True, exist_ok=True)
-
-    def _safe_user_file(self, user_id: str | None) -> Path:
-        if not user_id:
-            return self.directory / "history.json"
-        sanitized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in user_id)
-        return self.directory / f"{sanitized}.json"
-
-    def _read(self, user_id: str | None) -> List[str]:
-        file_path = self._safe_user_file(user_id)
-        if file_path.exists():
-            try:
-                return json.loads(file_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                return []
-        return []
-
-    def is_recent(self, text: str, user_id: str | None) -> bool:
-        history = self._read(user_id)
-        return text in history[-self.max_items :]
-
-    def remember(self, text: str, user_id: str | None) -> None:
-        file_path = self._safe_user_file(user_id)
-        history = self._read(user_id)
-        history.append(text)
-        history = history[-self.max_items :]
-        file_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
 
 
 class Affirmation:
     def __init__(self):
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        base_cache_dir = Path(__file__).resolve().parent / "cache"
-        self._daily_cache = _AffirmationCache(base_cache_dir / "daily", max_items=15)
-        self._monthly_cache = _AffirmationCache(base_cache_dir / "monthly", max_items=5)
+        self.reasoning_model = "gpt-4o-mini"
 
-    def get_daily_affirmation(self, user_id: str | None = None) -> affirmation_response:
-        prompt = self.create_prompt()
-        affirmation = self._generate_unique_affirmation(prompt, self._daily_cache, user_id)
-        return affirmation_response(affirmation=affirmation)
+    def generate_affirmations(self, request: affirmation_request) -> affirmation_response:
+        """Generate 12 affirmations based on quiz data and alignments, avoiding past themes."""
+        prompt = self._create_affirmation_prompt(request)
+        response_data = self._get_openai_response(prompt)
+        
+        if not response_data:
+            raise ValueError("Failed to generate affirmations")
+        
+        affirmations = response_data.get("affirmation", [])
+        theme = response_data.get("affirmation_theme", "")
+        
+        if len(affirmations) != 12:
+            raise ValueError(f"Expected 12 affirmations, got {len(affirmations)}")
+        
+        return affirmation_response(affirmation=affirmations, affirmation_theme=theme)
 
-    def create_prompt(self) -> str:
-        return (
-            "Write one daily affirmation for a Sui Amor guest. "
-            "Keep it first-person, 10 words or fewer, and centred on mindful self-confidence. "
-            "Use warm, modern language and return only the affirmation sentence."
-        )
+    def _create_affirmation_prompt(self, request: affirmation_request) -> str:
+        """Build the prompt for generating affirmations."""
+        system_prompt = """You are an expert Sui Amor affirmation creator. Your task is to generate exactly 12 affirmations that form a cohesive set based on the user's quiz data and their selected alignments.
 
-    def get_monthly_affirmation(self, user_id: str | None = None) -> affirmation_response:
-        prompt = self.create_monthly_prompt()
-        affirmation = self._generate_unique_affirmation(prompt, self._monthly_cache, user_id)
-        return affirmation_response(affirmation=affirmation)
+You MUST return valid JSON matching this exact structure:
+{
+  "affirmation": ["affirmation 1", "affirmation 2", ..., "affirmation 12"],
+  "affirmation_theme": "2-3 word theme"
+}
 
-    def create_monthly_prompt(self) -> str:
-        return (
-            "Compose one monthly affirmation for the Sui Amor journal card. "
-            "Use first-person voice, invite courageous softness, and keep the message within one elegant sentence wrapped in quotation marks."
-        )
-    
-    def get_openai_response(self, prompt: str) -> str:
-        completion = self.client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=1000
-        )
-        return completion.choices[0].message.content.strip()
+CRITICAL RULES:
+1. CONSISTENCY: All 12 affirmations must be thematically consistent and form a cohesive set around the affirmation_theme.
 
-    def _generate_unique_affirmation(
-        self,
-        prompt: str,
-        cache: _AffirmationCache,
-        user_id: str | None,
-    ) -> str:
-        candidate = ""
-        for _ in range(5):
-            candidate = self.get_openai_response(prompt)
-            if candidate and not cache.is_recent(candidate, user_id):
-                cache.remember(candidate, user_id)
-                return candidate
-        if candidate:
-            cache.remember(candidate, user_id)
-        return candidate
+2. THEME CREATION: The affirmation_theme should be 2-3 words that capture the essence of all 12 affirmations. Examples: "Inner Strength", "Creative Flow", "Peaceful Balance", "Joyful Courage".
+
+3. NO REPETITION: You MUST avoid using any theme or affirmations that appear in the past_theme or past_affirmations provided in the request. Be creative and generate fresh content.
+
+4. AFFIRMATION STYLE: Each affirmation should be:
+   - First-person, present tense
+   - Positive and empowering
+   - Clear and concise (10-20 words)
+   - Authentic and warm
+   - Related to the user's quiz responses and alignments
+
+5. ALIGNMENT INTEGRATION: Consider the user's synergies, harmonies, resonances, and polarities when crafting affirmations. Let their selected alignments inspire the theme and tone.
+
+6. PROFILE AWARENESS: Use existing_profile_tags to understand the user's vibe and ensure affirmations resonate with their personality."""
+
+        user_payload = {
+            "quiz_data": [item.model_dump() for item in request.quizdata],
+            "existing_profile_tags": request.existing_profile_tags or [],
+            "synergies": request.synergies or {},
+            "harmonies": request.harmonies or {},
+            "resonances": request.resonances or {},
+            "polarities": request.polarities or {},
+            "past_theme": request.past_theme or [],
+            "past_affirmations": request.past_affirmations or [],
+            "instructions": "Generate exactly 12 affirmations with a 2-3 word theme. Ensure NO repetition of past themes or affirmations. All 12 affirmations must be thematically consistent.",
+        }
+
+        return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
+
+    def _get_openai_response(self, prompt: str) -> Dict[str, Any] | None:
+        """Call OpenAI API to generate affirmations."""
+        try:
+            payload_data = json.loads(prompt)
+            system_content = payload_data.get("system", "")
+            user_content = json.dumps(payload_data.get("payload", {}), ensure_ascii=False)
+
+            response = self.client.chat.completions.create(
+                model=self.reasoning_model,
+                temperature=0.7,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": user_content},
+                ],
+            )
+            
+            content = response.choices[0].message.content
+            if content:
+                return json.loads(content)
+        except Exception:
+            return None
+        return None
