@@ -62,5 +62,5 @@ jobs:
         script: |
           cd /var/www/Sui-Amor/
           git pull origin main
-          docker-compose down
-          docker-compose up --build -d
+          docker compose down
+          docker compose up --build -d
