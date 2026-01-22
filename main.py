@@ -16,7 +16,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://suiamor.co", "https://www.suiamor.co", "https://api.suiamor.co", "https://www.api.suiamor.co","https://ai.suiamor.co","https://www.ai.suiamor.co"],  
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
