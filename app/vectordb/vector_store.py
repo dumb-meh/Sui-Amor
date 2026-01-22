@@ -86,6 +86,24 @@ class AlignmentsVectorStore:
             payload.append(entry)
         return payload
 
+    def get_by_type(self, alignment_type: str) -> List[Dict[str, Any]]:
+        """Retrieve all records of a specific alignment type."""
+        results = self._run_with_collection(
+            lambda collection: collection.get(
+                where={"type": alignment_type}
+            )
+        )
+        metadatas = results.get("metadatas", [])
+        ids = results.get("ids", [])
+        documents = results.get("documents", [])
+        payload: List[Dict[str, Any]] = []
+        for idx, metadata in enumerate(metadatas):
+            entry: Dict[str, Any] = dict(metadata)
+            entry["id"] = ids[idx]
+            entry["embedding_text"] = documents[idx]
+            payload.append(entry)
+        return payload
+
 
 def _normalize_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
     normalized: Dict[str, Any] = {}

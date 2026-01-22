@@ -32,3 +32,47 @@ async def upload_alignment_file(
         return {"uploaded": file.filename, **result}
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
+
+
+@router.get("/harmonies")
+async def get_harmonies(
+    service: AlignmentIngestionService = Depends(get_ingestion_service),
+):
+    try:
+        results = service.vector_store.get_by_type("harmonies")
+        return {"type": "harmonies", "count": len(results), "results": results}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@router.get("/polarities")
+async def get_polarities(
+    service: AlignmentIngestionService = Depends(get_ingestion_service),
+):
+    try:
+        results = service.vector_store.get_by_type("polarities")
+        return {"type": "polarities", "count": len(results), "results": results}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@router.get("/resonances")
+async def get_resonances(
+    service: AlignmentIngestionService = Depends(get_ingestion_service),
+):
+    try:
+        results = service.vector_store.get_by_type("resonances")
+        return {"type": "resonances", "count": len(results), "results": results}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@router.get("/synergies")
+async def get_synergies(
+    service: AlignmentIngestionService = Depends(get_ingestion_service),
+):
+    try:
+        results = service.vector_store.get_by_type("synergies")
+        return {"type": "synergies", "count": len(results), "results": results}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
