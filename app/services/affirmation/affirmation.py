@@ -13,7 +13,7 @@ load_dotenv()
 class Affirmation:
     def __init__(self):
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.reasoning_model = "gpt-4o-mini"
+        self.reasoning_model = "gpt-4.1"
 
     def generate_affirmations(self, request: affirmation_request) -> affirmation_response:
         """Generate 12 affirmations based on quiz data and alignments, avoiding past themes."""
@@ -33,13 +33,45 @@ class Affirmation:
 
     def _create_affirmation_prompt(self, request: affirmation_request) -> str:
         """Build the prompt for generating affirmations."""
-        system_prompt = """You are an expert Sui Amor affirmation creator. Your task is to generate exactly 12 affirmations that form a cohesive set based on the user's quiz data and their selected alignments.
+        
+        # Build preference context for the system prompt
+        preference_instructions = []
+        if request.religious_or_spritual_preference:
+            preference_instructions.append(
+                f"- RELIGIOUS/SPIRITUAL: The user identifies with {request.religious_or_spritual_preference} spirituality. "
+                f"Incorporate {request.religious_or_spritual_preference} values, principles, and spiritual concepts naturally into the affirmations. "
+                f"Use language and imagery that aligns with {request.religious_or_spritual_preference} tradition."
+            )
+        else:
+            preference_instructions.append("- RELIGIOUS/SPIRITUAL: Keep affirmations spiritually neutral.")
+        
+        if request.holiday_preference:
+            preference_instructions.append(
+                f"- HOLIDAY: The user celebrates {request.holiday_preference}. "
+                f"Incorporate themes of {request.holiday_preference} such as celebration, renewal, gratitude, or community into the affirmations. "
+                f"Use imagery and symbolism associated with {request.holiday_preference}."
+            )
+        else:
+            preference_instructions.append("- HOLIDAY: Keep affirmations timeless and universal.")
+        
+        if request.astrology_preference:
+            preference_instructions.append(
+                f"- ASTROLOGY: The user resonates with {request.astrology_preference} energy. "
+                f"Weave in {request.astrology_preference} astrological traits, strengths, and characteristics. "
+                f"Consider the elemental nature, ruling planets, and symbolic themes of {request.astrology_preference}."
+            )
+        else:
+            preference_instructions.append("- ASTROLOGY: Avoid astrological references.")
+        
+        preference_text = "\n".join(preference_instructions)
+        
+        system_prompt = f"""You are an expert Sui Amor affirmation creator. Your task is to generate exactly 12 affirmations that form a cohesive set based on the user's quiz data and their selected alignments.
 
 You MUST return valid JSON matching this exact structure:
-{
+{{
   "affirmation": ["affirmation 1", "affirmation 2", ..., "affirmation 12"],
   "affirmation_theme": "2-3 word theme"
-}
+}}
 
 CRITICAL RULES:
 1. CONSISTENCY: All 12 affirmations must be thematically consistent and form a cohesive set around the affirmation_theme.
@@ -59,13 +91,12 @@ CRITICAL RULES:
 
 6. PROFILE AWARENESS: Use existing_profile_tags to understand the user's vibe and ensure affirmations resonate with their personality.
 
-7. PREFERENCE HANDLING:
-   - If religious_or_spiritual_preference is provided, incorporate that spiritual perspective into the affirmations naturally. If not provided, keep affirmations spiritually neutral.
-   - If holiday_preference is provided, consider seasonal or holiday-related themes and imagery. If not provided, keep affirmations timeless and universal.
-   - If astrology_preference is provided, weave in astrological elements, energy, or symbolism relevant to that preference. If not provided, avoid astrological references."""
+7. PREFERENCE HANDLING - FOLLOW THESE EXACTLY:
+{preference_text}
+
+IMPORTANT: These preferences are MANDATORY when provided. You MUST incorporate them meaningfully into the affirmations, not just mention them superficially."""
 
         user_payload = {
-            "quiz_data": [item.model_dump() for item in request.quizdata],
             "existing_profile_tags": request.existing_profile_tags or [],
             "synergies": request.synergies or {},
             "harmonies": request.harmonies or {},
@@ -73,11 +104,16 @@ CRITICAL RULES:
             "polarities": request.polarities or {},
             "past_theme": request.past_theme or [],
             "past_affirmations": request.past_affirmations or [],
-            "religious_or_spiritual_preference": request.religious_or_spritual_preference,
-            "holiday_preference": request.holiday_preference,
-            "astrology_preference": request.astrology_preference,
-            "instructions": "Generate exactly 12 affirmations with a 2-3 word theme. Ensure NO repetition of past themes or affirmations. All 12 affirmations must be thematically consistent. Consider any provided preferences (religious/spiritual, holiday, astrology) and incorporate them naturally if present, or remain neutral if not provided.",
+            "instructions": "Generate exactly 12 affirmations with a 2-3 word theme. Ensure NO repetition of past themes or affirmations. All 12 affirmations must be thematically consistent.",
         }
+        
+        # Add preferences to payload if they exist
+        if request.religious_or_spritual_preference:
+            user_payload["religious_or_spiritual_preference"] = request.religious_or_spritual_preference
+        if request.holiday_preference:
+            user_payload["holiday_preference"] = request.holiday_preference
+        if request.astrology_preference:
+            user_payload["astrology_preference"] = request.astrology_preference
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
 
@@ -90,7 +126,7 @@ CRITICAL RULES:
 
             response = self.client.chat.completions.create(
                 model=self.reasoning_model,
-                temperature=0.7,
+                temperature=0.9,
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system_content},
