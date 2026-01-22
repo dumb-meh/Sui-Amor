@@ -15,10 +15,6 @@ class QuizItem(BaseModel):
 
 class QuizEvaluationRequest(BaseModel):
     answers: List[QuizItem]
-    religious_or_spritual_preference: Optional[str] = None
-    religious_or_spritual_preference: Optional[str] = None
-    holiday_preference: Optional[str] = None
-    astrology_preference: Optional[str] = None
 
 class QuizEvaluationResponse(BaseModel):
     synergies: Optional[Dict[str, Any]]

@@ -57,7 +57,12 @@ CRITICAL RULES:
 
 5. ALIGNMENT INTEGRATION: Consider the user's synergies, harmonies, resonances, and polarities when crafting affirmations. Let their selected alignments inspire the theme and tone.
 
-6. PROFILE AWARENESS: Use existing_profile_tags to understand the user's vibe and ensure affirmations resonate with their personality."""
+6. PROFILE AWARENESS: Use existing_profile_tags to understand the user's vibe and ensure affirmations resonate with their personality.
+
+7. PREFERENCE HANDLING:
+   - If religious_or_spiritual_preference is provided, incorporate that spiritual perspective into the affirmations naturally. If not provided, keep affirmations spiritually neutral.
+   - If holiday_preference is provided, consider seasonal or holiday-related themes and imagery. If not provided, keep affirmations timeless and universal.
+   - If astrology_preference is provided, weave in astrological elements, energy, or symbolism relevant to that preference. If not provided, avoid astrological references."""
 
         user_payload = {
             "quiz_data": [item.model_dump() for item in request.quizdata],
@@ -68,7 +73,10 @@ CRITICAL RULES:
             "polarities": request.polarities or {},
             "past_theme": request.past_theme or [],
             "past_affirmations": request.past_affirmations or [],
-            "instructions": "Generate exactly 12 affirmations with a 2-3 word theme. Ensure NO repetition of past themes or affirmations. All 12 affirmations must be thematically consistent.",
+            "religious_or_spiritual_preference": request.religious_or_spritual_preference,
+            "holiday_preference": request.holiday_preference,
+            "astrology_preference": request.astrology_preference,
+            "instructions": "Generate exactly 12 affirmations with a 2-3 word theme. Ensure NO repetition of past themes or affirmations. All 12 affirmations must be thematically consistent. Consider any provided preferences (religious/spiritual, holiday, astrology) and incorporate them naturally if present, or remain neutral if not provided.",
         }
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)

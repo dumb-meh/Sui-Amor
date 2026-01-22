@@ -23,6 +23,9 @@ class affirmation_request(BaseModel):
     polarities: Optional[Dict[str, Any]]
     past_theme: Optional[List[str]] = None
     past_affirmations: Optional[List[List[str]]] = None
+    religious_or_spritual_preference: Optional[str] = None
+    holiday_preference: Optional[str] = None
+    astrology_preference: Optional[str] = None
     
 class affirmation_response(BaseModel):
     affirmation: List[str]
