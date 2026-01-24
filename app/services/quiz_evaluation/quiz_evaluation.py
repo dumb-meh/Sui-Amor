@@ -61,7 +61,8 @@ class QuizEvaluation:
                     "attributes": self._coerce_dict(item.get("attributes")),
                 }
             )
-            system_prompt = """You are an expert Sui Amor guide. Given quiz answers and candidate alignments, craft tailored combinations.
+
+        system_prompt = """You are an expert Sui Amor guide. Given quiz answers and candidate alignments, craft tailored combinations.
 
 You will receive quiz data containing an array of answers. Each answer object has a question field. The user's responses can be provided in two ways:
 1. Simple answers: An 'answers' array containing one or more string values the user selected
@@ -72,29 +73,29 @@ Some questions may have only simple answers, some only sub-questions, and both f
 You MUST return valid JSON matching this exact structure:
 
 {
-  "synergies": {"items": [{"id": "...", "title": "...", "description": "..."}]},
-  "harmonies": {"items": [{"id": "...", "title": "...", "description": "..."}]},
-  "resonances": {"items": [{"id": "...", "title": "...", "description": "..."}]},
-  "polarities": {"items": [{"id": "...", "title": "...", "description": "..."}]},
-  "profile_tags": ["tag1", "tag2", "tag3"]
+    "synergies": {"items": [{"id": "...", "title": "...", "description": "..."}]},
+    "harmonies": {"items": [{"id": "...", "title": "...", "description": "..."}]},
+    "resonances": {"items": [{"id": "...", "title": "...", "description": "..."}]},
+    "polarities": {"items": [{"id": "...", "title": "...", "description": "..."}]},
+    "profile_tags": ["tag1", "tag2", "tag3"]
 }
 
 CRITICAL RULES:
 1. TITLE FORMATTING: Always clean up titles. Remove prefixes like "Red –", "Blue –", color names, or any other prefixes. Keep only the core meaningful title (e.g., "Red – Harmony of Inner Peace & Balance" becomes "Harmony of Inner Peace & Balance").
 
 2. ALIGNMENT TYPE ACCURACY: 
-   - Synergies = complementary combinations that enhance each other
-   - Harmonies = balanced, peaceful alignments
-   - Resonances = deep emotional or vibrational connections
-   - Polarities = contrasting yet complementary opposites
+     - Synergies = complementary combinations that enhance each other
+     - Harmonies = balanced, peaceful alignments
+     - Resonances = deep emotional or vibrational connections
+     - Polarities = contrasting yet complementary opposites
    
 3. APPROPRIATE TITLES: Each item's title MUST match its alignment type. If you're placing an item in "resonances", ensure the title says "Resonance of..." NOT "Synergy of...". If you're placing an item in "polarities", ensure the title says "Polarity of..." NOT "Synergy of...".
 
-4. CREATE WHEN NEEDED: If no suitable candidates exist for resonances or polarities, you may craft your own based on the quiz data and user's responses. Ensure they fit the definition of that alignment type.
+4. ONLY RETURN ALIGNMENTS THAT EXIST IN THE PROVIDED CANDIDATES: Do NOT create or invent new alignments. Only include items that are present in the candidates list (vector search results). If there are no suitable candidates for a type, leave that section empty or omit it.
 
 5. OPTIONAL SECTIONS: All sections are optional. Only return items that are truly applicable and meaningful. It's better to omit a section than force irrelevant items into it.
 
-6. Use the exact id from candidates when selecting from the provided list. When creating your own, use descriptive kebab-case ids.
+6. Use the exact id from candidates when selecting from the provided list.
 
 Limit profile_tags to 10 concise lowercase tags that capture the user's vibe based on the quiz data and selected alignments."""
         user_payload = {
@@ -104,7 +105,7 @@ Limit profile_tags to 10 concise lowercase tags that capture the user's vibe bas
             "instructions": {
                 "title_cleanup": "ALWAYS remove prefixes like 'Red –', 'Blue –', color names, or any other prefixes from titles. Keep only the meaningful core title.",
                 "alignment_accuracy": "Ensure each item's title matches its alignment type. Resonances should have 'Resonance of...' titles, Polarities should have 'Polarity of...' titles, etc.",
-                "selection": "Choose up to 3 items per alignment type from candidates. If no suitable resonances or polarities exist in candidates, create your own based on the quiz data.",
+                "selection": "Choose up to 3 items per alignment type from candidates. If no suitable candidates exist for a type, leave that section empty or omit it.",
                 "optional_sections": "All sections are optional. Only include items that are truly meaningful and applicable. Quality over forced quantity.",
                 "profile_tags": "Return up to 10 concise lowercase tags that capture the user's vibe based on quiz answers and selected alignments.",
             },
