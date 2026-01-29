@@ -32,8 +32,8 @@ class Affirmation:
         return affirmation_response(affirmation=affirmations, affirmation_theme=theme)
 
     def _create_affirmation_prompt(self, request: affirmation_request) -> str:
-        """Build the prompt for generating affirmations."""
-        
+        """Build the prompt for generating affirmations, dynamically based on affirmation_type."""
+
         # Build preference context for the system prompt
         preference_instructions = []
         if request.religious_or_spritual_preference:
@@ -44,7 +44,7 @@ class Affirmation:
             )
         else:
             preference_instructions.append("- RELIGIOUS/SPIRITUAL: Keep affirmations spiritually neutral.")
-        
+
         if request.holiday_preference:
             preference_instructions.append(
                 f"- HOLIDAY: The user celebrates {request.holiday_preference}. "
@@ -53,7 +53,7 @@ class Affirmation:
             )
         else:
             preference_instructions.append("- HOLIDAY: Keep affirmations timeless and universal.")
-        
+
         if request.astrology_preference:
             preference_instructions.append(
                 f"- ASTROLOGY: The user resonates with {request.astrology_preference} energy. "
@@ -62,9 +62,26 @@ class Affirmation:
             )
         else:
             preference_instructions.append("- ASTROLOGY: Avoid astrological references.")
-        
+
         preference_text = "\n".join(preference_instructions)
-        
+
+        # Dynamic affirmation style instructions
+        if request.affirmation_type == "long":
+            affirmation_style = (
+                "Each affirmation should be a long, full 3-line affirmation. "
+                "Make each one rich, detailed, and deeply expressive, while still being positive, empowering, and authentic."
+            )
+        elif request.affirmation_type == "short":
+            affirmation_style = (
+                "Each affirmation should be structured as follows: "
+                "- 2 separate 'I am' statements (each a single sentence), followed by 3 separate 'I will' declarations (each a single sentence). "
+                "All 5 sentences together form one affirmation."
+            )
+        else:
+            affirmation_style = (
+                "Each affirmation should be: First-person, present tense, positive and empowering, clear and concise (10-20 words), authentic and warm, and related to the user's quiz responses and alignments."
+            )
+
         system_prompt = f"""You are an expert Sui Amor affirmation creator. Your task is to generate exactly 12 affirmations that form a cohesive set based on the user's quiz data and their selected alignments.
 
 You MUST return valid JSON matching this exact structure:
@@ -80,12 +97,7 @@ CRITICAL RULES:
 
 3. NO REPETITION: You MUST avoid using any theme or affirmations that appear in the past_theme or past_affirmations provided in the request. Be creative and generate fresh content.
 
-4. AFFIRMATION STYLE: Each affirmation should be:
-   - First-person, present tense
-   - Positive and empowering
-   - Clear and concise (10-20 words)
-   - Authentic and warm
-   - Related to the user's quiz responses and alignments
+4. AFFIRMATION STYLE: {affirmation_style}
 
 5. ALIGNMENT INTEGRATION: Consider the user's synergies, harmonies, resonances, and polarities when crafting affirmations. Let their selected alignments inspire the theme and tone.
 
@@ -105,8 +117,9 @@ IMPORTANT: These preferences are MANDATORY when provided. You MUST incorporate t
             "past_theme": request.past_theme or [],
             "past_affirmations": request.past_affirmations or [],
             "instructions": "Generate exactly 12 affirmations with a 2-3 word theme. Ensure NO repetition of past themes or affirmations. All 12 affirmations must be thematically consistent.",
+            "affirmation_type": request.affirmation_type,
         }
-        
+
         # Add preferences to payload if they exist
         if request.religious_or_spritual_preference:
             user_payload["religious_or_spiritual_preference"] = request.religious_or_spritual_preference

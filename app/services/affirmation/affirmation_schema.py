@@ -26,6 +26,7 @@ class affirmation_request(BaseModel):
     religious_or_spritual_preference: Optional[str] = None
     holiday_preference: Optional[str] = None
     astrology_preference: Optional[str] = None
+    affirmation_type: str
     
 class affirmation_response(BaseModel):
     affirmation: List[str]
