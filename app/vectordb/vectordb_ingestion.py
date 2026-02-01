@@ -142,6 +142,13 @@ class AlignmentIngestionService:
                 continue
             record["id"] = f"{base_id}-{count}"
 
+    def query_by_text(self, text: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Embed a text query and return nearest records from the vector store."""
+        if not text or not text.strip():
+            return []
+        embedding = self._embed_text(text)
+        return self.vector_store.query(embedding=embedding, limit=limit)
+
     def _infer_type_from_title(self, title: str) -> str | None:
         title = title.lower()
         if "synergy" in title:

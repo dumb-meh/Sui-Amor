@@ -76,3 +76,19 @@ async def get_synergies(
         return {"type": "synergies", "count": len(results), "results": results}
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
+
+
+@router.get("/query")
+async def query_alignments(
+    q: str,
+    limit: int = 10,
+    service: AlignmentIngestionService = Depends(get_ingestion_service),
+):
+    """
+    Run a vector query for `q` and return the nearest alignment records.
+    """
+    try:
+        results = service.query_by_text(q, limit=limit)
+        return {"query": q, "limit": limit, "count": len(results), "results": results}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
