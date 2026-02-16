@@ -66,20 +66,34 @@ class Affirmation:
         preference_text = "\n".join(preference_instructions)
 
         # Dynamic affirmation style instructions
-        if request.affirmation_type == "long":
+        if request.affirmation_type == "freedom":
             affirmation_style = (
-                "Each affirmation should be a long, full 3-line affirmation. "
-                "Make each one rich, detailed, and deeply expressive, while still being positive, empowering, and authentic."
+                "Each affirmation should be three full flowing statements."
+                "Example:"
+                "May clarity rise within me when uncertainty begins to speak."
+                "Each step forward strengthens the voice that believes in me."
+                "Confidence grows as I honor my own inner knowing."
+                "or"
+                "Courage expands each time I move toward the unknown."
+                "Fear loosens its grip when I choose forward motion."
+                "Strength reveals itself through action, breath by breath."
             )
-        elif request.affirmation_type == "short":
+        else:  # default to structured
             affirmation_style = (
                 "Each affirmation should be structured as follows: "
-                "- 2 separate 'I am' statements (each a single sentence), followed by 3 separate 'I will' declarations (each a single sentence). "
-                "All 5 sentences together form one affirmation."
-            )
-        else:
-            affirmation_style = (
-                "Each affirmation should be: First-person, present tense, positive and empowering, clear and concise (10-20 words), authentic and warm, and related to the user's quiz responses and alignments."
+                "Two full guidance statements (reflective or directional, using 'I will' or 'May I'), followed by Three short 'I am' declarations. Total: 5 lines."
+                "Example:"
+                "I will trust the quiet wisdom within me, even when uncertainty appears."
+                "I will move forward with clarity, knowing my path becomes stronger with action."
+                "I am capable."
+                "I am certain."
+                "I am confident."
+                "Tone variation example:"
+                "May I remember the strength that lives within me, even when my confidence feels quiet."
+                "May I trust my inner voice to guide me forward with clarity and steady courage."
+                "I am capable."
+                "I am certain."
+                "I am enough."
             )
 
         system_prompt = f"""You are an expert Sui Amor affirmation creator. Your task is to generate exactly 12 affirmations that form a cohesive set based on the user's quiz data and their selected alignments.
