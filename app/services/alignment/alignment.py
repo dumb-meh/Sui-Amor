@@ -26,13 +26,34 @@ class Alignment:
         if csv_path is None:
             csv_path = Path(__file__).parent / "data" / "alignments.csv"
         
-        self.data_store = AlignmentDataStore(csv_path=csv_path)
-        self.normalizer = AnswerNormalizer(self.data_store.answers)
+        print(f"[DEBUG] Initializing Alignment with CSV: {csv_path}")
+        
+        try:
+            self.data_store = AlignmentDataStore(csv_path=csv_path)
+            
+            if self.data_store.answers:
+                print(f"[DEBUG] Data store loaded: {len(self.data_store.answers)} answers, {len(self.data_store.alignments)} alignments")
+            else:
+                print(f"[WARNING] Data store initialized but no data loaded")
+                
+        except Exception as e:
+            print(f"[ERROR] Failed to load data store: {e}")
+            raise
+        
+        try:
+            self.normalizer = AnswerNormalizer(self.data_store.answers)
+            if self.data_store.answers:
+                print(f"[DEBUG] Normalizer initialized with {len(self.normalizer.text_to_id)} text mappings")
+        except Exception as e:
+            print(f"[ERROR] Failed to initialize normalizer: {e}")
+            raise
         
         # Matching configuration
         self.axis_distance_threshold = 3.0  # Max distance for Tier 2 matches
         self.min_results = 3  # Minimum results to return
         self.max_results = 12  # Maximum results to return
+        
+        print(f"[INFO] Alignment service initialized successfully")
     
     def match(self, request: Any, max_results: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -55,6 +76,18 @@ class Alignment:
             quiz_answers = request.get("answers", [])
         
         normalized_answers = self.normalizer.normalize_quiz_answers(quiz_answers)
+        
+        # Debug logging
+        print(f"[DEBUG] Normalized {len(normalized_answers)} answers")
+        print(f"[DEBUG] Data store has {len(self.data_store.answers)} answers, {len(self.data_store.alignments)} alignments")
+        if normalized_answers:
+            print(f"[DEBUG] First normalized: {normalized_answers[0]['answer_id']}")
+        else:
+            print("[WARNING] No answers were normalized!")
+            # Check unmatched
+            unmatched = self.normalizer.get_unmatched_answers(quiz_answers)
+            if unmatched:
+                print(f"[WARNING] Unmatched answers: {unmatched[:5]}")
         
         if not normalized_answers:
             return []

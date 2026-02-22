@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.affirmation.affirmation_route import router as affirmation_router
-from app.vectordb.vectordb_route import router as alignment_router
+from app.services.alignment.alignment_route import router as alignment_router
 from app.services.quiz_evaluation.quiz_evaluation_route import router as quiz_evaluation_router
 
 app = FastAPI(

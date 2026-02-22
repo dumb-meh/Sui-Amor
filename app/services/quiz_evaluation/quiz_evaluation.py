@@ -27,8 +27,14 @@ class QuizEvaluation:
         # Get deterministic alignment matches (no AI involved)
         matches = self.alignment_matcher.match(request, max_results=self.max_results)
         
+        # Debug logging
+        print(f"[DEBUG] Got {len(matches)} matches from alignment matcher")
+        if matches:
+            print(f"[DEBUG] First match: {matches[0].get('id', 'unknown')}")
+        
         if not matches:
             # Return empty response if no matches
+            print("[WARNING] No alignment matches found - returning empty response")
             return QuizEvaluationResponse(
                 synergies={"items": []},
                 harmonies={"items": []},

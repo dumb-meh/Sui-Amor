@@ -1,7 +1,9 @@
 """API routes for alignment CSV management."""
+import io
 from pathlib import Path
 from typing import Dict, Any
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException, UploadFile, File
 
 router = APIRouter()
@@ -22,10 +24,11 @@ def get_alignment_service():
 @router.post("/upload-alignment-csv")
 async def upload_alignment_csv(file: UploadFile = File(...)):
     """
-    Upload new alignment CSV and hot-reload data.
+    Upload new alignment CSV/Excel and hot-reload data.
     
-    This replaces the current CSV file and rebuilds all indices
-    (in-memory + ChromaDB) without restarting the service.
+    Accepts CSV (.csv) or Excel (.xlsx, .xls) files.
+    File is always saved as 'alignments.csv' regardless of upload name.
+    Rebuilds all indices (in-memory + ChromaDB) without restarting the service.
     
     Returns:
         Stats about uploaded data including counts by type
@@ -35,10 +38,13 @@ async def upload_alignment_csv(file: UploadFile = File(...)):
         if not file.filename:
             raise HTTPException(status_code=400, detail="No filename provided")
         
-        if not file.filename.lower().endswith('.csv'):
+        filename_lower = file.filename.lower()
+        allowed_extensions = ('.csv', '.xlsx', '.xls')
+        
+        if not filename_lower.endswith(allowed_extensions):
             raise HTTPException(
                 status_code=400, 
-                detail="Invalid file type. Only CSV files are accepted."
+                detail=f"Invalid file type. Only CSV (.csv) or Excel (.xlsx, .xls) files are accepted. Got: {file.filename}"
             )
         
         # Read file content
@@ -47,12 +53,22 @@ async def upload_alignment_csv(file: UploadFile = File(...)):
         if not content:
             raise HTTPException(status_code=400, detail="File is empty")
         
-        # Save to data directory
-        csv_path = Path(__file__).parent / "data" / "alignments.csv"
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        # Determine if it's Excel or CSV
+        is_excel = filename_lower.endswith(('.xlsx', '.xls'))
         
-        # Write new CSV
-        csv_path.write_bytes(content)
+        data_dir = Path(__file__).parent / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Load dataframe from uploaded content
+        if is_excel:
+            df = pd.read_excel(io.BytesIO(content))
+            # Save as CSV (always use .csv extension)
+            csv_path = data_dir / "alignments.csv"
+            df.to_csv(csv_path, index=False)
+        else:
+            # Save CSV directly
+            csv_path = data_dir / "alignments.csv"
+            csv_path.write_bytes(content)
         
         # Hot-reload alignment service
         alignment_service = get_alignment_service()
@@ -60,8 +76,10 @@ async def upload_alignment_csv(file: UploadFile = File(...)):
         
         return {
             "status": "success",
-            "message": f"CSV '{file.filename}' uploaded successfully",
-            "file": file.filename,
+            "message": f"File '{file.filename}' uploaded and saved as 'alignments.csv'",
+            "original_file": file.filename,
+            "saved_as": "alignments.csv",
+            "file_type": "Excel" if is_excel else "CSV",
             "csv_path": str(csv_path),
             **stats
         }
@@ -71,7 +89,7 @@ async def upload_alignment_csv(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(
             status_code=500, 
-            detail=f"Failed to upload CSV: {str(e)}"
+            detail=f"Failed to upload file: {str(e)}"
         )
 
 

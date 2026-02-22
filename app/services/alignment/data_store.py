@@ -34,14 +34,18 @@ class AlignmentDataStore:
         
         # Load data if CSV exists
         if self.csv_path.exists():
+            print(f"[INFO] Loading CSV from: {self.csv_path}")
             self.reload_from_csv(self.csv_path)
+        else:
+            print(f"[WARNING] CSV file not found at: {self.csv_path}")
+            print(f"[INFO] Service will start with empty data. Upload CSV via /upload-alignment-csv endpoint")
     
     def reload_from_csv(self, csv_path: Optional[Path] = None) -> Dict[str, Any]:
         """
-        Parse CSV and rebuild all indices.
+        Parse CSV/Excel and rebuild all indices.
         
         Args:
-            csv_path: Optional new CSV path. If None, uses existing path.
+            csv_path: Optional new CSV/Excel path. If None, uses existing path.
             
         Returns:
             Stats about loaded data
@@ -50,14 +54,27 @@ class AlignmentDataStore:
             self.csv_path = Path(csv_path)
         
         if not self.csv_path.exists():
-            raise FileNotFoundError(f"CSV file not found: {self.csv_path}")
+            raise FileNotFoundError(f"File not found: {self.csv_path}")
         
-        # Parse CSV
-        df = pd.read_csv(self.csv_path)
+        # Parse file (supports CSV and Excel)
+        df = self._load_dataframe(self.csv_path)
+        
+        # Debug: Check what values Is_Selectable has
+        if "Is_Selectable" in df.columns:
+            unique_values = df["Is_Selectable"].unique()
+            print(f"[DEBUG] Is_Selectable unique values: {unique_values}")
         
         # Separate answers from alignments
-        answers_df = df[df["Is_Selectable"] == "TRUE"].copy()
-        alignments_df = df[df["Alignment_Type"].notna()].copy()
+        # Handle both "TRUE" (string) and True (boolean)
+        answers_df = df[
+            (df["Is_Selectable"].astype(str).str.upper() == "TRUE") | 
+            (df["Is_Selectable"] == True)
+        ].copy()
+        
+        # Alignments have non-empty Alignment_Type
+        alignments_df = df[df["Alignment_Type"].notna() & (df["Alignment_Type"].astype(str).str.strip() != "")].copy()
+        
+        print(f"[DEBUG] Parsed CSV: {len(answers_df)} answer rows, {len(alignments_df)} alignment rows")
         
         # Build answer dictionary
         self.answers = {}
@@ -116,7 +133,9 @@ class AlignmentDataStore:
             }
         
         # Rebuild vector index for Tier 3 fallback
+        print(f"[DEBUG] Starting vector index rebuild...")
         self._rebuild_vector_index()
+        print(f"[DEBUG] Vector index rebuild complete")
         
         self.last_updated = datetime.now()
         
@@ -161,12 +180,14 @@ class AlignmentDataStore:
         """Rebuild ChromaDB collection for vector fallback (Tier 3)."""
         collection_name = "alignments"
         
+        print(f"[DEBUG] Deleting old ChromaDB collection...")
         # Delete old collection
         try:
             self._client.delete_collection(name=collection_name)
         except:
             pass
         
+        print(f"[DEBUG] Creating new ChromaDB collection...")
         # Create new collection
         self._collection = self._client.create_collection(
             name=collection_name,
@@ -174,8 +195,10 @@ class AlignmentDataStore:
         )
         
         if not self.alignments:
+            print(f"[DEBUG] No alignments to index")
             return
         
+        print(f"[DEBUG] Preparing {len(self.alignments)} alignment documents for embedding...")
         # Prepare documents for embedding
         documents = []
         ids = []
@@ -200,12 +223,14 @@ class AlignmentDataStore:
             })
         
         # Add to ChromaDB (it will auto-generate embeddings)
+        print(f"[DEBUG] Adding {len(documents)} documents to ChromaDB (generating embeddings - may take 30-60s)...")
         if documents:
             self._collection.add(
                 documents=documents,
                 ids=ids,
                 metadatas=metadatas
             )
+        print(f"[DEBUG] ChromaDB indexing complete!")
     
     def query_vector(self, query_text: str, n_results: int = 5, category_filter: Optional[str] = None) -> List[str]:
         """
@@ -260,3 +285,23 @@ class AlignmentDataStore:
             return float(value)
         except (ValueError, TypeError):
             return 0.0
+    
+    def _load_dataframe(self, file_path: Path) -> pd.DataFrame:
+        """
+        Load DataFrame from CSV or Excel file.
+        
+        Args:
+            file_path: Path to CSV or Excel file
+            
+        Returns:
+            Loaded DataFrame
+        """
+        suffix = file_path.suffix.lower()
+        
+        if suffix in {".xlsx", ".xls"}:
+            return pd.read_excel(file_path)
+        elif suffix == ".csv":
+            return pd.read_csv(file_path)
+        else:
+            # Try CSV as default
+            return pd.read_csv(file_path)

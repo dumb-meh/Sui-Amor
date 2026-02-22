@@ -18,8 +18,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 
-RUN mkdir -p .chroma app/services/affirmation/cache && \
-    chmod -R 777 .chroma app/services/affirmation/cache && \
+RUN mkdir -p .chroma app/services/affirmation/cache app/services/alignment/data && \
+    chmod -R 777 .chroma app/services/affirmation/cache app/services/alignment/data && \
     adduser --disabled-password --gecos '' appuser && \
     chown -R appuser:appuser /app
 
