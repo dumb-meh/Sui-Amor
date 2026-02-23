@@ -60,14 +60,26 @@ class AnswerNormalizer:
         if clean_key in self.text_to_id:
             return self.text_to_id[clean_key]
         
-        # Try partial matching (for sub-options with long text)
-        for lookup_text, answer_id in self.text_to_id.items():
-            if clean_key in lookup_text or lookup_text in clean_key:
-                # If there's significant overlap, consider it a match
-                if len(clean_key) > 3:  # Avoid short false positives
-                    return answer_id
+        # Try partial matching ONLY if there's substantial overlap
+        # (prevents "orange" the fruit from matching "ORANGE" the color)
+        best_match = None
+        best_overlap_ratio = 0.0
         
-        return None
+        for lookup_text, answer_id in self.text_to_id.items():
+            # Calculate overlap ratio
+            if clean_key in lookup_text:
+                overlap_ratio = len(clean_key) / len(lookup_text)
+            elif lookup_text in clean_key:
+                overlap_ratio = len(lookup_text) / len(clean_key)
+            else:
+                continue
+            
+            # Only match if overlap is substantial (>70%) to avoid false positives
+            if overlap_ratio > 0.7 and overlap_ratio > best_overlap_ratio:
+                best_match = answer_id
+                best_overlap_ratio = overlap_ratio
+        
+        return best_match
     
     def normalize_quiz_answers(self, quiz_answers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

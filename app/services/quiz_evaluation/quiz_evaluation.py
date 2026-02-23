@@ -34,7 +34,7 @@ class QuizEvaluation:
         
         if not matches:
             # Return empty response if no matches
-            print("[WARNING] No alignment matches found - returning empty response")
+            print("[INFO] No alignment matches found - CSV doesn't contain alignments for selected answers")
             return QuizEvaluationResponse(
                 synergies={"items": []},
                 harmonies={"items": []},

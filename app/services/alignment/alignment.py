@@ -97,32 +97,43 @@ class Alignment:
         user_answer_ids = {ans["answer_id"] for ans in normalized_answers}
         user_categories = {ans["category"] for ans in normalized_answers}
         
+        print(f"[DEBUG] User selected {len(user_answer_ids)} unique answers")
+        print(f"[DEBUG] ALL selected answer IDs: {sorted(list(user_answer_ids))}")
+        print(f"[DEBUG] User categories: {user_categories}")
+        print(f"[DEBUG] User axis profile: {user_profile}")
+        
         # TIER 1: Exact component match
+        print(f"[DEBUG] === TIER 1: Exact Match ===")
         tier1_results = self._tier1_exact_match(
             user_answer_ids=user_answer_ids,
             normalized_answers=normalized_answers
         )
+        print(f"[DEBUG] Tier 1 found {len(tier1_results)} exact matches")
         
         if tier1_results:
+            print(f"[DEBUG] ✓ Returning Tier 1 results (exact match)")
             return self._format_results(tier1_results[:max_results], "exact")
         
         # TIER 2: Axis distance match (deterministic)
+        print(f"[DEBUG] === TIER 2: Axis Distance Match ===")
         tier2_results = self._tier2_axis_match(
             user_profile=user_profile,
-            user_categories=user_categories
+            user_categories=user_categories,
+            user_answer_ids=user_answer_ids
         )
+        print(f"[DEBUG] Tier 2 found {len(tier2_results)} candidates")
+        if tier2_results:
+            print(f"[DEBUG] Best distance: {tier2_results[0]['distance']:.2f} (threshold: {self.axis_distance_threshold})")
+            print(f"[DEBUG] Best match: {tier2_results[0]['alignment']['id']}")
         
         if tier2_results and tier2_results[0]["distance"] < self.axis_distance_threshold:
+            print(f"[DEBUG] ✓ Returning Tier 2 results (axis distance)")
             return self._format_results(tier2_results[:max_results], "axis")
         
-        # TIER 3: Vector similarity fallback (always returns results)
-        tier3_results = self._tier3_vector_fallback(
-            normalized_answers=normalized_answers,
-            user_categories=user_categories,
-            n_results=max_results
-        )
-        
-        return self._format_results(tier3_results[:max_results], "vector")
+        # NO TIER 3: If no matching alignments exist, return empty
+        print(f"[DEBUG] === NO MATCHES FOUND ===")
+        print(f"[DEBUG] No alignments in CSV match the selected answers. Returning empty results.")
+        return []
     
     def _tier1_exact_match(
         self, 
@@ -140,6 +151,8 @@ class Alignment:
             normalized_answers, 
             key=lambda x: x["selection_order"]
         )]
+        
+        print(f"[DEBUG] Tier 1: Checking {len(self.data_store.alignments)} alignments against user answers")
         
         for alignment_id, alignment in self.data_store.alignments.items():
             components = alignment["components"]
@@ -174,18 +187,28 @@ class Alignment:
     def _tier2_axis_match(
         self,
         user_profile: Dict[str, float],
-        user_categories: set
+        user_categories: set,
+        user_answer_ids: set
     ) -> List[Dict[str, Any]]:
         """
         Tier 2: Find alignments with closest axis distance (deterministic).
-        Filters by category overlap.
+        REQUIRES: At least ONE alignment component must be in user's selected answers.
         """
         candidates = []
+        component_filtered = 0
+        category_filtered = 0
         
         for alignment_id, alignment in self.data_store.alignments.items():
-            # Filter by category (hard constraint)
+            # CRITICAL: At least ONE component must be in user's selected answers
+            alignment_components = set(alignment["components"])
+            if not alignment_components.intersection(user_answer_ids):
+                component_filtered += 1
+                continue
+            
+            # Filter by category (additional constraint)
             alignment_categories = set(alignment["categories"])
             if not alignment_categories.intersection(user_categories):
+                category_filtered += 1
                 continue
             
             # Calculate Euclidean distance in 5D axis space
@@ -196,6 +219,11 @@ class Alignment:
                 "distance": distance,
                 "match_type": "axis_distance"
             })
+        
+        print(f"[DEBUG] Tier 2: Component filter removed {component_filtered}, category filter removed {category_filtered}, kept {len(candidates)} candidates")
+        if candidates:
+            for i, cand in enumerate(candidates[:5]):
+                print(f"[DEBUG]   Candidate {i+1}: {cand['alignment']['id']} (components: {cand['alignment']['components']}) distance: {cand['distance']:.2f}")
         
         # Sort by distance (closest first)
         candidates.sort(key=lambda x: x["distance"])
