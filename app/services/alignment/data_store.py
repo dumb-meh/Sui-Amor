@@ -259,6 +259,33 @@ class AlignmentDataStore:
         
         return results["ids"][0] if results["ids"] else []
     
+    def get_by_type(self, alignment_type: str) -> List[Dict[str, Any]]:
+        """
+        Get all alignments of a specific type.
+        
+        Args:
+            alignment_type: Type to filter by (SYNERGY, HARMONY, RESONANCE, POLARITY, SOLO)
+            
+        Returns:
+            List of alignment dictionaries matching the type
+        """
+        alignment_type_upper = alignment_type.upper()
+        results = []
+        
+        for alignment_id, alignment in self.alignments.items():
+            if alignment["type"] == alignment_type_upper:
+                results.append({
+                    "id": alignment["id"],
+                    "type": alignment["type"],
+                    "name": alignment["name"],
+                    "title": alignment["title"],
+                    "description": alignment["description"],
+                    "components": alignment["components"],
+                    "categories": alignment["categories"]
+                })
+        
+        return results
+    
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about loaded data."""
         return {

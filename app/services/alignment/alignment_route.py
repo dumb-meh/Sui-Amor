@@ -149,3 +149,129 @@ async def alignment_stats():
             status_code=500,
             detail=f"Failed to get stats: {str(e)}"
         )
+
+
+@router.get("/synergies")
+async def get_synergies():
+    """
+    Get all SYNERGY alignments available in the CSV.
+    
+    Returns:
+        List of all synergy alignments
+    """
+    try:
+        alignment_service = get_alignment_service()
+        results = alignment_service.data_store.get_by_type("SYNERGY")
+        
+        return {
+            "type": "SYNERGY",
+            "count": len(results),
+            "items": results
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get synergies: {str(e)}"
+        )
+
+
+@router.get("/harmonies")
+async def get_harmonies():
+    """
+    Get all HARMONY alignments available in the CSV.
+    
+    Returns:
+        List of all harmony alignments
+    """
+    try:
+        alignment_service = get_alignment_service()
+        results = alignment_service.data_store.get_by_type("HARMONY")
+        
+        return {
+            "type": "HARMONY",
+            "count": len(results),
+            "items": results
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get harmonies: {str(e)}"
+        )
+
+
+@router.get("/resonances")
+async def get_resonances():
+    """
+    Get all RESONANCE alignments available in the CSV.
+    
+    Returns:
+        List of all resonance alignments
+    """
+    try:
+        alignment_service = get_alignment_service()
+        results = alignment_service.data_store.get_by_type("RESONANCE")
+        
+        return {
+            "type": "RESONANCE",
+            "count": len(results),
+            "items": results
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get resonances: {str(e)}"
+        )
+
+
+@router.get("/polarities")
+async def get_polarities():
+    """
+    Get all POLARITY alignments available in the CSV.
+    
+    Returns:
+        List of all polarity alignments
+    """
+    try:
+        alignment_service = get_alignment_service()
+        results = alignment_service.data_store.get_by_type("POLARITY")
+        
+        return {
+            "type": "POLARITY",
+            "count": len(results),
+            "items": results
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get polarities: {str(e)}"
+        )
+
+
+@router.get("/solos")
+async def get_solos():
+    """
+    Get all SOLO alignments available in the CSV.
+    
+    Returns:
+        List of all solo alignments
+    """
+    try:
+        alignment_service = get_alignment_service()
+        results = alignment_service.data_store.get_by_type("SOLO")
+        
+        return {
+            "type": "SOLO",
+            "count": len(results),
+            "items": results
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get solos: {str(e)}"
+        )
+
