@@ -18,13 +18,15 @@ class Affirmation:
     def generate_affirmations(self, request: affirmation_request) -> affirmation_response:
         """Generate 12 affirmations based on quiz data and alignments, avoiding past themes."""
         
-        # Make both LLM calls separately
+        # Make three LLM calls separately
         affirmation_prompt = self._create_affirmation_prompt(request)
         summary_prompt = self._create_quiz_summary_prompt(request)
+        scent_prompt = self._create_scent_prompt(request)
         
-        # Call both (could be parallelized in future if needed)
+        # Call all three (could be parallelized in future if needed)
         affirmation_data = self._get_openai_response(affirmation_prompt, model=self.reasoning_model)
         summary_data = self._get_openai_response(summary_prompt, model="gpt-4o-mini")
+        scent_data = self._get_openai_response(scent_prompt, model="gpt-4o-mini")
         
         if not affirmation_data:
             raise ValueError("Failed to generate affirmations")
@@ -32,9 +34,14 @@ class Affirmation:
         if not summary_data:
             raise ValueError("Failed to generate quiz summary")
         
+        if not scent_data:
+            raise ValueError("Failed to generate scent recommendations")
+        
         affirmations = affirmation_data.get("affirmation", [])
         theme = affirmation_data.get("affirmation_theme", "")
         summary = summary_data.get("short_summary_of_quiz", "")
+        base_scent = scent_data.get("base_scent", [])
+        tertiary_scent = scent_data.get("tertiary_scent", [])
         
         if len(affirmations) != 12:
             raise ValueError(f"Expected 12 affirmations, got {len(affirmations)}")
@@ -42,7 +49,9 @@ class Affirmation:
         return affirmation_response(
             affirmation=affirmations, 
             affirmation_theme=theme,
-            short_summary_of_quiz=summary
+            short_summary_of_quiz=summary,
+            base_scent=base_scent,
+            tertiary_scent=tertiary_scent
         )
 
     def _create_affirmation_prompt(self, request: affirmation_request) -> str:
@@ -221,6 +230,104 @@ IMPORTANT:
         user_payload = {
             "quiz_data": quiz_summary,
             "instructions": "Generate a personalized quiz summary following the exact format and structure specified. Use \\n for line breaks and - for bullet points."
+        }
+
+        return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
+
+    def _create_scent_prompt(self, request: affirmation_request) -> str:
+        """Build the prompt for scent selection (separate LLM call)."""
+        
+        system_prompt = """You are an expert scent curator who selects personalized fragrances based on user preferences and personality alignments.
+
+Your task is to identify the base scent from the user's goal preferences, and recommend a complementary tertiary scent.
+
+You MUST return valid JSON matching this exact structure:
+{
+  "base_scent": ["Sweet Orange", "Lemon", "Jasmine"] or "Lavender",
+  "tertiary_scent": ["Rose", "Vanilla"] or "Rose"
+}
+
+CRITICAL STEP-BY-STEP PROCESS:
+
+1. FIND USER'S GOAL(S):
+   - Look at quiz_data for the goal-related question (usually "What Is Your Goal?")
+   - Extract ALL goal answers the user selected
+   - Example: User selected ["Joy & Happiness", "Self-Worth & Acceptance"]
+
+2. MATCH GOALS TO SCENTS:
+   - For EACH goal the user selected, find it in base_scent_info
+   - Extract the "value" field (NOT the "goal" field) from base_scent_info
+   - Combine all values into one list or string
+   - Example: 
+     * "Joy & Happiness" in base_scent_info has value: ["Sweet Orange", "Lemon", "Jasmine"]
+     * "Self-Worth & Acceptance" in base_scent_info has value: ["Patchouli", "Neroli", "Cedarwood"]
+     * Combined base_scent: ["Sweet Orange", "Lemon", "Jasmine", "Patchouli", "Neroli", "Cedarwood"]
+
+3. IMPORTANT - RETURN THE SCENT NAMES, NOT GOAL NAMES:
+   ❌ WRONG: {"base_scent": ["Joy & Happiness", "Self-Worth & Acceptance"]}
+   ✅ CORRECT: {"base_scent": ["Sweet Orange", "Lemon", "Jasmine", "Patchouli", "Neroli", "Cedarwood"]}
+
+4. SELECT TERTIARY SCENT:
+   - Based on the user's synergies, harmonies, resonances, and polarities
+   - Choose 1-3 complementary scents that enhance the base scents
+   - DO NOT repeat any scents from base_scent
+   - Consider aromatherapy pairings and the user's overall personality
+
+REAL EXAMPLE WITH ACTUAL DATA STRUCTURE:
+
+base_scent_info provided:
+[
+  {"goal": "Joy & Happiness", "value": ["Sweet Orange", "Lemon", "Jasmine"]},
+  {"goal": "Self-Worth & Acceptance", "value": ["Patchouli", "Neroli", "Cedarwood"]},
+  {"goal": "Inner Peace & Balance", "value": ["Lavender", "Clary Sage", "Sandalwood"]}
+]
+
+User's quiz answer: "What Is Your Goal?" → ["Joy & Happiness", "Self-Worth & Acceptance"]
+
+Correct response:
+{
+  "base_scent": ["Sweet Orange", "Lemon", "Jasmine", "Patchouli", "Neroli", "Cedarwood"],
+  "tertiary_scent": ["Vanilla", "Rose"]
+}
+
+CRITICAL REMINDERS:
+- base_scent MUST contain the actual scent names from the "value" field
+- NEVER return goal names in base_scent
+- If user has multiple goals, combine all their scent values
+- Tertiary scent is your creative choice based on personality alignments"""
+
+        # Convert quiz data to readable format
+        quiz_summary = []
+        for item in request.quizdata:
+            question_data = {"question": item.question}
+            if item.answers:
+                question_data["answers"] = item.answers
+            if item.sub_questions:
+                sub_q_data = []
+                for sq in item.sub_questions:
+                    sub_q_data.append({
+                        "sub_question": sq.sub_question,
+                        "sub_answers": sq.sub_answers
+                    })
+                question_data["sub_questions"] = sub_q_data
+            quiz_summary.append(question_data)
+
+        # Convert base_scent_info to dict format
+        scent_mapping = []
+        for scent_item in request.base_scent_info:
+            scent_mapping.append({
+                "goal": scent_item.goal,
+                "value": scent_item.value
+            })
+
+        user_payload = {
+            "quiz_data": quiz_summary,
+            "synergies": request.synergies or {},
+            "harmonies": request.harmonies or {},
+            "resonances": request.resonances or {},
+            "polarities": request.polarities or {},
+            "base_scent_info": scent_mapping,
+            "instructions": "CRITICAL: Find user's goal(s) from quiz_data, match each goal to base_scent_info, extract the VALUE field (the scent names, NOT the goal names), combine all values for base_scent. Then recommend complementary tertiary_scent."
         }
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)

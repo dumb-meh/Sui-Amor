@@ -14,6 +14,10 @@ class QuizItem(BaseModel):
     answers: Optional[List[str]] = None
     sub_questions: Optional[List[SubQuestion]] = None 
     
+class ScentItem(BaseModel):
+    goal: str
+    value: List[str] | str
+    
 class affirmation_request(BaseModel):
     existing_profile_tags: Optional[List[str]] = None
     quizdata: List[QuizItem]
@@ -27,10 +31,13 @@ class affirmation_request(BaseModel):
     holiday_preference: Optional[str] = None
     astrology_preference: Optional[str] = None
     affirmation_type: str
+    base_scent_info: List[ScentItem]
     
 class affirmation_response(BaseModel):
     affirmation: List[str]
-    affirmation_theme:str
-    short_summary_of_quiz:str
+    affirmation_theme: str
+    short_summary_of_quiz: str
+    base_scent: List[str] | str
+    tertiary_scent: List[str] | str
 
 
