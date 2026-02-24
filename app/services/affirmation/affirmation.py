@@ -17,19 +17,33 @@ class Affirmation:
 
     def generate_affirmations(self, request: affirmation_request) -> affirmation_response:
         """Generate 12 affirmations based on quiz data and alignments, avoiding past themes."""
-        prompt = self._create_affirmation_prompt(request)
-        response_data = self._get_openai_response(prompt)
         
-        if not response_data:
+        # Make both LLM calls separately
+        affirmation_prompt = self._create_affirmation_prompt(request)
+        summary_prompt = self._create_quiz_summary_prompt(request)
+        
+        # Call both (could be parallelized in future if needed)
+        affirmation_data = self._get_openai_response(affirmation_prompt, model=self.reasoning_model)
+        summary_data = self._get_openai_response(summary_prompt, model="gpt-4o-mini")
+        
+        if not affirmation_data:
             raise ValueError("Failed to generate affirmations")
         
-        affirmations = response_data.get("affirmation", [])
-        theme = response_data.get("affirmation_theme", "")
+        if not summary_data:
+            raise ValueError("Failed to generate quiz summary")
+        
+        affirmations = affirmation_data.get("affirmation", [])
+        theme = affirmation_data.get("affirmation_theme", "")
+        summary = summary_data.get("short_summary_of_quiz", "")
         
         if len(affirmations) != 12:
             raise ValueError(f"Expected 12 affirmations, got {len(affirmations)}")
         
-        return affirmation_response(affirmation=affirmations, affirmation_theme=theme)
+        return affirmation_response(
+            affirmation=affirmations, 
+            affirmation_theme=theme,
+            short_summary_of_quiz=summary
+        )
 
     def _create_affirmation_prompt(self, request: affirmation_request) -> str:
         """Build the prompt for generating affirmations, dynamically based on affirmation_type."""
@@ -143,15 +157,86 @@ IMPORTANT: These preferences are MANDATORY when provided. You MUST incorporate t
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
 
-    def _get_openai_response(self, prompt: str) -> Dict[str, Any] | None:
-        """Call OpenAI API to generate affirmations."""
+    def _create_quiz_summary_prompt(self, request: affirmation_request) -> str:
+        """Build the prompt for generating quiz summary (separate LLM call)."""
+        
+        system_prompt = """You are an expert at analyzing quiz responses and creating thoughtful, personalized summaries.
+
+Your task is to generate a short summary of the user's quiz responses that reflects their values, patterns, and current focus.
+
+You MUST return valid JSON matching this exact structure:
+{
+  "short_summary_of_quiz": "the summary text here"
+}
+
+CRITICAL FORMATTING RULES:
+1. Use \\n to indicate where new lines should appear in the summary
+2. Use - (dash) instead of • (bullet points) for list items
+3. Follow this EXACT structure in your summary:
+
+Paragraph 1: Overall balance and values (2-3 sentences)
+\\n\\n
+Paragraph 2: How they recharge and what motivates them (2-3 sentences)
+\\n\\n
+"Your pattern reflects someone who:"
+\\n\\n
+- First characteristic
+\\n
+- Second characteristic
+\\n
+- Third characteristic
+\\n
+- Fourth characteristic
+\\n\\n
+Paragraph 3: Current focus and growth direction (1-2 sentences)
+
+EXAMPLE OUTPUT (follow this structure exactly):
+{
+  "short_summary_of_quiz": "Your results show a balance between steady grounding and growth-oriented energy. You value stability, learning, and personal progress, and you tend to move forward through consistency rather than intensity.\\n\\nYou recharge in quiet or natural environments, where you can think clearly and reconnect with your direction. Creating, helping others, and improving yourself appear to be important sources of motivation.\\n\\nYour pattern reflects someone who:\\n\\n- Seeks meaning and steady progress\\n- Values learning and personal development\\n- Regains energy through calm, structured environments\\n- Moves forward with purpose rather than impulse\\n\\nYour current focus on self-worth and connection suggests a period of strengthening your foundation — building confidence, clarity, and emotional stability as you grow."
+}
+
+IMPORTANT:
+- Analyze ONLY the quiz data provided
+- Be specific and personalized based on their actual answers
+- Keep the tone warm, insightful, and affirming
+- The summary should be 4-5 short paragraphs total
+- Always include the "Your pattern reflects someone who:" section with 4 dash-prefixed items"""
+
+        # Convert quiz data to readable format
+        quiz_summary = []
+        for item in request.quizdata:
+            question_data = {"question": item.question}
+            if item.answers:
+                question_data["answers"] = item.answers
+            if item.sub_questions:
+                sub_q_data = []
+                for sq in item.sub_questions:
+                    sub_q_data.append({
+                        "sub_question": sq.sub_question,
+                        "sub_answers": sq.sub_answers
+                    })
+                question_data["sub_questions"] = sub_q_data
+            quiz_summary.append(question_data)
+
+        user_payload = {
+            "quiz_data": quiz_summary,
+            "instructions": "Generate a personalized quiz summary following the exact format and structure specified. Use \\n for line breaks and - for bullet points."
+        }
+
+        return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
+
+    def _get_openai_response(self, prompt: str, model: str = None) -> Dict[str, Any] | None:
+        """Call OpenAI API to generate affirmations or quiz summary."""
         try:
             payload_data = json.loads(prompt)
             system_content = payload_data.get("system", "")
             user_content = json.dumps(payload_data.get("payload", {}), ensure_ascii=False)
 
+            # Use provided model or default to reasoning model
+            selected_model = model or self.reasoning_model
+
             response = self.client.chat.completions.create(
-                model=self.reasoning_model,
+                model=selected_model,
                 temperature=0.9,
                 response_format={"type": "json_object"},
                 messages=[

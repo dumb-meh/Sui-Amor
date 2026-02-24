@@ -31,5 +31,6 @@ class affirmation_request(BaseModel):
 class affirmation_response(BaseModel):
     affirmation: List[str]
     affirmation_theme:str
-    short_summary_of_quiz: str
+    short_summary_of_quiz:str
+
 
