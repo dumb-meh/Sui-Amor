@@ -142,9 +142,10 @@ class Alignment:
     ) -> List[Dict[str, Any]]:
         """
         Tier 1: Find alignments whose components exactly match user's answers.
-        Order-sensitive for SYNERGY/HARMONY types.
+        Prioritizes correct order, but falls back to any order if no exact match found.
         """
-        exact_matches = []
+        ordered_matches = []
+        unordered_matches = []
         
         # Create ordered sequence of answer IDs
         user_sequence = [ans["answer_id"] for ans in sorted(
@@ -153,6 +154,7 @@ class Alignment:
         )]
         
         print(f"[DEBUG] Tier 1: Checking {len(self.data_store.alignments)} alignments against user answers")
+        print(f"[DEBUG] Tier 1: User answer order: {user_sequence[:5]}...")
         
         for alignment_id, alignment in self.data_store.alignments.items():
             components = alignment["components"]
@@ -162,27 +164,35 @@ class Alignment:
             if not components_set.issubset(user_answer_ids):
                 continue
             
-            # For order-sensitive alignments, check sequence
-            if alignment["component_order_matters"]:
-                # Check if components appear in same order in user sequence
-                if self._is_subsequence(components, user_sequence):
-                    exact_matches.append({
-                        "alignment": alignment,
-                        "distance": 0.0,
-                        "match_type": "exact_ordered"
-                    })
+            # Check if components appear in correct order in user sequence
+            if self._is_subsequence(components, user_sequence):
+                ordered_matches.append({
+                    "alignment": alignment,
+                    "distance": 0.0,
+                    "match_type": "exact_ordered"
+                })
+                print(f"[DEBUG]   ✓ Ordered match: {alignment_id} (components: {components})")
             else:
-                # Order doesn't matter, just set match
-                exact_matches.append({
+                # Components exist but wrong order - keep as fallback
+                unordered_matches.append({
                     "alignment": alignment,
                     "distance": 0.0,
                     "match_type": "exact_unordered"
                 })
+                print(f"[DEBUG]   ~ Unordered match (fallback): {alignment_id} (components: {components})")
         
-        # Sort by number of components (more specific alignments first)
-        exact_matches.sort(key=lambda x: len(x["alignment"]["components"]), reverse=True)
-        
-        return exact_matches
+        # Prefer ordered matches, fallback to unordered if none found
+        if ordered_matches:
+            print(f"[DEBUG] Tier 1: Found {len(ordered_matches)} ordered matches (using these)")
+            # Sort by number of components (more specific alignments first)
+            ordered_matches.sort(key=lambda x: len(x["alignment"]["components"]), reverse=True)
+            return ordered_matches
+        elif unordered_matches:
+            print(f"[DEBUG] Tier 1: No ordered matches, using {len(unordered_matches)} unordered matches as fallback")
+            unordered_matches.sort(key=lambda x: len(x["alignment"]["components"]), reverse=True)
+            return unordered_matches
+        else:
+            return []
     
     def _tier2_axis_match(
         self,
