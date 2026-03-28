@@ -169,9 +169,14 @@ IMPORTANT: These preferences are MANDATORY when provided. You MUST incorporate t
     def _create_quiz_summary_prompt(self, request: affirmation_request) -> str:
         """Build the prompt for generating quiz summary (separate LLM call)."""
         
-        system_prompt = """You are an expert at analyzing quiz responses and creating thoughtful, personalized summaries.
+        system_prompt = """You are an expert at analyzing quiz responses and creating thoughtful, highly cohesive, and personalized summaries.
 
-Your task is to generate a short summary of the user's quiz responses that reflects their values, patterns, and current focus.
+Your task is to generate a short summary of the user's quiz responses that reflects their values, patterns, and current focus. The summary MUST flow as a single evolving narrative where ideas connect and reinforce each other instead of resetting.
+
+CRITICAL NARRATIVE INSTRUCTIONS:
+1. Cohesion: Each section and paragraph MUST transition naturally into the next.
+2. Continuity: Reference earlier points in subsequent sentences, rather than introducing new concepts in isolation.
+3. Unified Voice: The entire summary should read as one continuous interpretation, seamlessly connected, NOT multiple segmented observations stacked together.
 
 You MUST return valid JSON matching this exact structure:
 {
@@ -229,7 +234,7 @@ IMPORTANT:
 
         user_payload = {
             "quiz_data": quiz_summary,
-            "instructions": "Generate a personalized quiz summary following the exact format and structure specified. Use \\n for line breaks and - for bullet points."
+            "instructions": "Generate a highly cohesive and personalized quiz summary. Ensure smooth transitions between paragraphs and concepts so the entire summary flows seamlessly without sounding segmented. Follow the exact structure specified, using \\n for line breaks and - for bullet points."
         }
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
