@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.services.affirmation.affirmation_route import router as affirmation_router
 from app.services.alignment.alignment_route import router as alignment_router
 from app.services.quiz_evaluation.quiz_evaluation_route import router as quiz_evaluation_router
+from app.services.weekly_reflection.weekly_reflection_route import router as weekly_reflection_router
 
 app = FastAPI(
     title="Sui Amor",
@@ -25,6 +26,7 @@ app.add_middleware(
 app.include_router(affirmation_router)
 app.include_router(alignment_router)
 app.include_router(quiz_evaluation_router)
+app.include_router(weekly_reflection_router)
 
 
 @app.get("/", tags=["Health"])
