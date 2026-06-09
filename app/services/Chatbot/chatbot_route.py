@@ -9,7 +9,7 @@ chatbot_service = ChatbotService()
 
 
 
-@router.post("/", response_model=ChatbotMessageResponse, summary="Send a message to the chatbot")
+@router.post("/chat", response_model=ChatbotMessageResponse, summary="Send a message to the chatbot")
 async def chatbot_web_message(
     request: ChatbotMessageRequest,
 ):
