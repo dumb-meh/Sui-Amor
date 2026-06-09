@@ -37,8 +37,15 @@ class SessionCacheManager:
         except Exception as e:
             print(f"Error retrieving cache for user {user_id}: {e}")
             return None
-    
-    def update_history(self, user_id: str, new_message: str, new_response: str, existing_history: Optional[List[HistoryItem]] = None):
+
+    def update_history(
+        self,
+        user_id: str,
+        new_message: str,
+        new_response: str,
+        existing_history: Optional[List[HistoryItem]] = None,
+        ttl_hours: Optional[int] = None,
+    ):
         """Update conversation history for a user"""
         if not self.redis_client or not user_id:
             return
@@ -58,12 +65,42 @@ class SessionCacheManager:
             # Save to cache with TTL
             cache_key = self._get_cache_key(user_id)
             history_data = [item.dict() for item in history]
-            ttl_seconds = settings.CACHE_TTL_HOURS * 3600  # Convert hours to seconds
-            
-            self.redis_client.setex(cache_key, ttl_seconds, json.dumps(history_data))
+
+            if ttl_hours is not None:
+                ttl_seconds = ttl_hours * 3600
+                self.redis_client.setex(cache_key, ttl_seconds, json.dumps(history_data))
+            else:
+                self.redis_client.set(cache_key, json.dumps(history_data))
             
         except Exception as e:
             print(f"Error updating cache for user {user_id}: {e}")
+
+    def _get_response_cache_key(self, cache_key: str) -> str:
+        return f"chat_response:{cache_key}"
+
+    def get_cached_response(self, cache_key: str) -> Optional[str]:
+        if not self.redis_client or not cache_key:
+            return None
+
+        try:
+            cached = self.redis_client.get(self._get_response_cache_key(cache_key))
+            if cached:
+                return cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+            return None
+        except Exception as e:
+            print(f"Error retrieving cached response {cache_key}: {e}")
+            return None
+
+    def set_cached_response(self, cache_key: str, response: str) -> None:
+        if not self.redis_client or not cache_key:
+            return
+
+        try:
+            redis_key = self._get_response_cache_key(cache_key)
+            ttl_seconds = settings.CACHE_TTL_HOURS * 3600
+            self.redis_client.setex(redis_key, ttl_seconds, response)
+        except Exception as e:
+            print(f"Error saving cached response {cache_key}: {e}")
     
     def clear_session(self, user_id: str):
         """Clear conversation history for a user"""
