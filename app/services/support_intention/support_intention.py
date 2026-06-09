@@ -3,9 +3,10 @@ import os
 import openai
 from dotenv import load_dotenv
 
-from .support_intention_schema import SupportIntentionRequest, SupportIntentionResponse
+from .support_intention_schema import SupportIntentionRequest, SupportIntentionResponse, IntentionItem
 
 load_dotenv()
+
 
 
 class SupportIntention:
@@ -15,40 +16,55 @@ class SupportIntention:
 
     def generate_support_intention(self, request: SupportIntentionRequest) -> SupportIntentionResponse:
         """
-        Generate a thoughtful weekly reflection and suggestion based on previous reflections and goal.
+        Generate exactly 3 personalized intention items based on the user's goal
+        and previous support intentions.
         """
         prompt = self.create_prompt(request)
-        response = self.get_openai_response(prompt)
-        
-        if not response:
-            return SupportIntentionResponse(
-                suggestion="Take a moment to breathe and appreciate your journey. Reflect on your goals and take one gentle step forward today."
-            )
-        return response
+        return self.get_openai_response(prompt)
 
     def create_prompt(self, request: SupportIntentionRequest) -> str:
         system_prompt = (
             "You are a compassionate, thoughtful self-reflection guide and coach for Sui Amor.\n\n"
-            "Your task is to analyze the user's focus goal and their previous weekly reflections (if any), "
-            "and craft a deeply inspiring, highly personalized, and supportive weekly reflection and growth suggestion.\n\n"
-            "The reflection should:\n"
-            "- Acknowledge their focus/goal.\n"
-            "- Connect insights from their previous reflections (if provided) to show their growth trajectory.\n"
-            "- Offer gentle, actionable, and soulful advice for the week ahead.\n"
-            "- Be written in a warm, poetic, and encouraging tone.\n"
-            "- Flow naturally, using paragraphs rather than bullet points, to create a premium, cohesive reading experience.\n\n"
+            "Your task is to generate exactly 3 intention items for the user based on their focus goal "
+            "and previous support intentions (if any).\n\n"
+            "The 3 items MUST have these exact titles (in this order):\n"
+            '  1. "Morning Intentions"\n'
+            '  2. "Mindful Moments"\n'
+            '  3. "Evening Reflection"\n\n'
+            "For each item, write a short, warm, and actionable description (1–2 sentences) "
+            "that is personalized to the user's goal. The descriptions should:\n"
+            "- Feel inspiring, soulful, and encouraging.\n"
+            "- Be concise and easy to read at a glance.\n"
+            "- Vary meaningfully from any previous support intentions provided.\n\n"
             "You MUST return valid JSON matching this exact structure:\n"
             "{\n"
-            '  "suggestion": "Your beautiful, personalized weekly reflection and suggestion text here."\n'
+            '  "suggestion": [\n'
+            '    {"title": "Morning Intentions", "description": "..."},\n'
+            '    {"title": "Mindful Moments", "description": "..."},\n'
+            '    {"title": "Evening Reflection", "description": "..."}\n'
+            "  ]\n"
+            "}\n\n"
+            "Example of a well-formed response (for a goal of 'build confidence'):\n"
+            "{\n"
+            '  "suggestion": [\n'
+            '    {"title": "Morning Intentions", "description": "Read your affirmations aloud and remind yourself of one strength you bring to the world today."},\n'
+            '    {"title": "Mindful Moments", "description": "When self-doubt arises, pause, take a breath, and gently return to your intention of growing into your confidence."},\n'
+            '    {"title": "Evening Reflection", "description": "Celebrate one moment today where you showed up bravely, and release any judgment with gratitude."}\n'
+            "  ]\n"
             "}"
         )
-        
+
         user_payload = {
             "goal": request.goal,
-            "previous_reflections": request.previous_reflections or [],
-            "instructions": "Generate a beautiful weekly reflection and suggestion. Ensure it feels premium, tailored to their goal, and flows beautifully."
+            "previous_support_intentions": [
+                item.model_dump() for item in (request.previous_support_intentions or [])
+            ],
+            "instructions": (
+                "Generate 3 personalized intention descriptions for the fixed titles. "
+                "Keep each description short (1–2 sentences), warm, and tailored to the goal."
+            ),
         }
-        
+
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
 
     def get_openai_response(self, prompt: str) -> SupportIntentionResponse | None:
@@ -66,13 +82,17 @@ class SupportIntention:
                     {"role": "user", "content": user_content},
                 ],
             )
-            
+
             content = response.choices[0].message.content
             if content:
                 data = json.loads(content)
-                suggestion = data.get("suggestion", "")
-                if suggestion:
-                    return SupportIntentionResponse(suggestion=suggestion)
+                raw_items = data.get("suggestion", [])
+                if isinstance(raw_items, list) and len(raw_items) == 3:
+                    items = [
+                        IntentionItem(title=item["title"], description=item["description"])
+                        for item in raw_items
+                    ]
+                    return SupportIntentionResponse(suggestion=items)
         except Exception:
             return None
         return None

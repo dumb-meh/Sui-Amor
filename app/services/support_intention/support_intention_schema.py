@@ -1,10 +1,14 @@
 from pydantic import BaseModel
-from typing import Dict, List, Any, Optional
+from typing import List, Optional
+
+
+class IntentionItem(BaseModel):
+    title: str
+    description: str
 
 
 class SupportIntentionRequest(BaseModel):
-    previous_support_intentions: Optional[List[str]] = None
-    goal: Optional[str] = None
+    user_id:str
 
 class SupportIntentionResponse(BaseModel):
-    suggestion: str
+    suggestion: List[IntentionItem]

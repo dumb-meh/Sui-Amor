@@ -76,5 +76,58 @@ class SessionCacheManager:
         except Exception as e:
             print(f"Error clearing cache for user {user_id}: {e}")
 
+    # ------------------------------------------------------------------
+    # User goal persistence (keyed by user_id, no expiry)
+    # ------------------------------------------------------------------
+
+    def _get_goal_key(self, user_id: str) -> str:
+        """Generate Redis key for user goal data"""
+        return f"user_goal:{user_id}"
+
+    def save_user_goal(self, user_id: str, goal: str, religious_preference: Optional[str] = None) -> None:
+        """
+        Persist (upsert) the user's goal and religious preference.
+
+        Args:
+            user_id: Unique identifier for the user.
+            goal: Answer from the 9th quiz question (user's stated goal).
+            religious_preference: Religious/spiritual preference if provided;
+                                  defaults to 'secular' when None or empty.
+        """
+        if not self.redis_client or not user_id:
+            return
+
+        try:
+            key = self._get_goal_key(user_id)
+            data = {
+                "goal": goal,
+                "religious_preference": religious_preference if religious_preference else "secular",
+            }
+            # Overwrite any existing record — upsert semantics, no TTL
+            self.redis_client.set(key, json.dumps(data))
+            print(f"[INFO] Saved goal for user {user_id}: {data}")
+        except Exception as e:
+            print(f"Error saving goal for user {user_id}: {e}")
+
+    def get_user_goal(self, user_id: str) -> Optional[dict]:
+        """
+        Retrieve the stored goal and religious preference for a user.
+
+        Returns:
+            dict with keys 'goal' and 'religious_preference', or None if not found.
+        """
+        if not self.redis_client or not user_id:
+            return None
+
+        try:
+            key = self._get_goal_key(user_id)
+            raw = self.redis_client.get(key)
+            if raw:
+                return json.loads(raw)
+            return None
+        except Exception as e:
+            print(f"Error retrieving goal for user {user_id}: {e}")
+            return None
+
 # Global cache manager instance
 cache_manager = SessionCacheManager()

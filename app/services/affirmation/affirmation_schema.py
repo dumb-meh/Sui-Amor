@@ -32,6 +32,7 @@ class affirmation_request(BaseModel):
     astrology_preference: Optional[str] = None
     affirmation_type: str
     base_scent_info: List[ScentItem]
+    user_id:str
     
 class affirmation_response(BaseModel):
     affirmation: List[str]

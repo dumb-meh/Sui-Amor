@@ -6,6 +6,7 @@ import openai
 from dotenv import load_dotenv
 
 from .affirmation_schema import affirmation_request, affirmation_response
+from app.utils.cache_manager import cache_manager
 
 load_dotenv()
 
@@ -83,13 +84,36 @@ class Affirmation:
         if len(affirmations) != 12:
             raise ValueError(f"Expected 12 affirmations, got {len(affirmations)}")
         
-        return affirmation_response(
+        response = affirmation_response(
             affirmation=affirmations, 
             affirmation_theme=theme,
             short_summary_of_quiz=summary,
             base_scent=base_scent,
             tertiary_scent=tertiary_scent
         )
+
+        # Persist goal + religious preference to Redis (upsert — overwrites existing)
+        try:
+            goal = self._extract_goal(request.quizdata)
+            cache_manager.save_user_goal(
+                user_id=request.user_id,
+                goal=goal,
+                religious_preference=request.religious_or_spritual_preference,
+            )
+        except Exception as e:
+            print(f"[WARN] Failed to save user goal to Redis: {e}")
+
+        return response
+
+    def _extract_goal(self, quizdata: list) -> str:
+        """Extract the goal answer(s) from the 9th quiz question (index 8)."""
+        try:
+            ninth_question = quizdata[8]  # 0-indexed
+            if ninth_question.answers:
+                return ", ".join(ninth_question.answers)
+        except (IndexError, AttributeError):
+            pass
+        return ""
     
     def _calculate_intensity_tier(self, quizdata: list) -> str:
         """Calculate intensity tier from Q7 (Restoration) and Q8 (Emotional Pattern) weights."""

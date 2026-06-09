@@ -14,3 +14,4 @@ pydantic_settings
 pandas
 chromadb
 openpyxl
+redis
