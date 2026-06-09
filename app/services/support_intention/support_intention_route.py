@@ -2,11 +2,11 @@ from fastapi import APIRouter, HTTPException, Query
 from .support_intention import SupportIntention
 from .support_intention_schema import SupportIntentionRequest, SupportIntentionResponse
 
-router = APIRouter()
+router = APIRouter(tags=["Support Intention"])
 support_intention_service = SupportIntention()
 
 
-@router.get("/support_intention", response_model=SupportIntentionResponse)
+@router.get("/support_intention", response_model=SupportIntentionResponse, summary="Get the current support intention")
 async def get_support_intention(user_id: str = Query(..., description="The user's unique identifier")):
     """
     Returns the current support intention for the user.
@@ -30,7 +30,7 @@ async def get_support_intention(user_id: str = Query(..., description="The user'
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/support_intention/generate", response_model=SupportIntentionResponse)
+@router.post("/support_intention/generate", response_model=SupportIntentionResponse, summary="Force-generate a support intention")
 async def force_generate_support_intention(request: SupportIntentionRequest):
     """
     Force-generates a fresh support intention regardless of age.
