@@ -6,6 +6,8 @@ from app.services.affirmation.affirmation_route import router as affirmation_rou
 from app.services.alignment.alignment_route import router as alignment_router
 from app.services.quiz_evaluation.quiz_evaluation_route import router as quiz_evaluation_router
 from app.services.weekly_reflection.weekly_reflection_route import router as weekly_reflection_router
+from app.services.support_intention.support_intention_route import router as support_intention_router
+from app.services.Chatbot.chatbot_route import router as chatbot_router
 
 app = FastAPI(
     title="Sui Amor",
@@ -27,6 +29,8 @@ app.include_router(affirmation_router)
 app.include_router(alignment_router)
 app.include_router(quiz_evaluation_router)
 app.include_router(weekly_reflection_router)
+app.include_router(support_intention_router)
+app.include_router(chatbot_router)
 
 
 @app.get("/", tags=["Health"])

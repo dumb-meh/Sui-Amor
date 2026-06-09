@@ -8,7 +8,8 @@ class IntentionItem(BaseModel):
 
 
 class SupportIntentionRequest(BaseModel):
-    user_id:str
+    user_id: str
+
 
 class SupportIntentionResponse(BaseModel):
     suggestion: List[IntentionItem]

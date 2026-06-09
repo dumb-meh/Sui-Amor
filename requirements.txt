@@ -1,14 +1,8 @@
 fastapi
 pydantic
 python-dotenv
-httpx
 openai
 python-multipart
-typing
-aiohttp
-asyncio
-jinja2
-requests
 uvicorn
 pydantic_settings
 pandas

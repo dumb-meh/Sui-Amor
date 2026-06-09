@@ -7,6 +7,7 @@ load_dotenv()
 
 class Settings(BaseSettings):
     OPENAI_API_KEY: str
+    OPENAI_MODEL: str = "gpt-4o-mini"
 
     # Redis / cache
     REDIS_URL: str = "redis://localhost:6379"

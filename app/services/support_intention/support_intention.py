@@ -4,9 +4,11 @@ import openai
 from dotenv import load_dotenv
 
 from .support_intention_schema import SupportIntentionRequest, SupportIntentionResponse, IntentionItem
+from app.utils.cache_manager import cache_manager
 
 load_dotenv()
 
+STALE_DAYS = 7  # Regenerate after this many days
 
 
 class SupportIntention:
@@ -14,15 +16,63 @@ class SupportIntention:
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.tag_model = "gpt-4o-mini"
 
-    def generate_support_intention(self, request: SupportIntentionRequest) -> SupportIntentionResponse:
+    def generate_support_intention(self, user_id: str) -> SupportIntentionResponse:
         """
-        Generate exactly 3 personalized intention items based on the user's goal
-        and previous support intentions.
-        """
-        prompt = self.create_prompt(request)
-        return self.get_openai_response(prompt)
+        Generate exactly 3 personalized intention items and persist them.
 
-    def create_prompt(self, request: SupportIntentionRequest) -> str:
+        - Goal is fetched from Redis (saved by the affirmation endpoint).
+        - Past 5 support intentions are fetched from Redis to avoid repetition.
+        - Result is saved as the current intention (with timestamp) and appended to history.
+        """
+        # 1. Fetch goal from Redis
+        goal_data = cache_manager.get_user_goal(user_id) or {}
+        goal = goal_data.get("goal", "")
+
+        # 2. Fetch past 5 intention results from Redis (for variety)
+        past_intentions = cache_manager.get_intention_history(user_id)
+
+        # 3. Generate via OpenAI
+        response = self._generate(goal, past_intentions)
+        if not response:
+            raise ValueError("Failed to generate support intention")
+
+        # 4. Persist: save as current (with timestamp) + append to history
+        suggestion_json = json.dumps([item.model_dump() for item in response.suggestion])
+        cache_manager.save_intention(user_id, suggestion_json)
+        cache_manager.append_intention_history(user_id, suggestion_json)
+
+        return response
+
+    def get_current_intention(self, user_id: str) -> tuple[SupportIntentionResponse | None, bool]:
+        """
+        Return (SupportIntentionResponse | None, is_stale).
+
+        - None means nothing has ever been generated for this user.
+        - is_stale=True means the cached content is >= 7 days old and should be regenerated.
+        """
+        envelope = cache_manager.get_intention(user_id)
+        if not envelope:
+            return None, True
+
+        stale = cache_manager.is_stale(envelope.get("generated_at", ""), days=STALE_DAYS)
+
+        try:
+            items_data = json.loads(envelope["data"])
+            items = [IntentionItem(**item) for item in items_data]
+            return SupportIntentionResponse(suggestion=items), stale
+        except Exception as e:
+            print(f"[WARN] Failed to deserialize intention for user {user_id}: {e}")
+            return None, True
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _generate(self, goal: str, past_intentions: list) -> SupportIntentionResponse | None:
+        prompt = self._create_prompt(goal, past_intentions)
+        return self._get_openai_response(prompt)
+
+    def _create_prompt(self, goal: str, past_intentions: list) -> str:
         system_prompt = (
             "You are a compassionate, thoughtful self-reflection guide and coach for Sui Amor.\n\n"
             "Your task is to generate exactly 3 intention items for the user based on their focus goal "
@@ -55,19 +105,18 @@ class SupportIntention:
         )
 
         user_payload = {
-            "goal": request.goal,
-            "previous_support_intentions": [
-                item.model_dump() for item in (request.previous_support_intentions or [])
-            ],
+            "goal": goal or "general well-being",
+            "previous_support_intentions": past_intentions,
             "instructions": (
                 "Generate 3 personalized intention descriptions for the fixed titles. "
-                "Keep each description short (1–2 sentences), warm, and tailored to the goal."
+                "Keep each description short (1–2 sentences), warm, and tailored to the goal. "
+                "Ensure the new intentions differ meaningfully from the previous ones provided."
             ),
         }
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
 
-    def get_openai_response(self, prompt: str) -> SupportIntentionResponse | None:
+    def _get_openai_response(self, prompt: str) -> SupportIntentionResponse | None:
         try:
             payload_data = json.loads(prompt)
             system_content = payload_data.get("system", "")
@@ -93,6 +142,7 @@ class SupportIntention:
                         for item in raw_items
                     ]
                     return SupportIntentionResponse(suggestion=items)
-        except Exception:
+        except Exception as e:
+            print(f"[ERROR] SupportIntention OpenAI call failed: {e}")
             return None
         return None

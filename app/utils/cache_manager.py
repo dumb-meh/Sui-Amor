@@ -2,6 +2,7 @@
 import redis
 import json
 import os
+from datetime import datetime, timezone
 from typing import List, Optional
 from app.core.config import settings
 from app.services.affirmation.affirmation_schema import HistoryItem
@@ -165,6 +166,130 @@ class SessionCacheManager:
         except Exception as e:
             print(f"Error retrieving goal for user {user_id}: {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # Staleness helper
+    # ------------------------------------------------------------------
+
+    def is_stale(self, generated_at: str, days: int = 7) -> bool:
+        """
+        Return True if the ISO UTC timestamp string is older than `days` days.
+        Also returns True if the timestamp is missing or unparseable.
+        """
+        try:
+            generated = datetime.fromisoformat(generated_at).replace(tzinfo=timezone.utc)
+            age = datetime.now(timezone.utc) - generated
+            return age.days >= days
+        except Exception:
+            return True  # treat bad timestamps as stale
+
+    # ------------------------------------------------------------------
+    # Support Intention — timestamped storage
+    # ------------------------------------------------------------------
+
+    def save_intention(self, user_id: str, suggestion_json: str) -> None:
+        """Store support intention with a UTC generation timestamp."""
+        if not self.redis_client:
+            return
+        envelope = {
+            "data": suggestion_json,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.redis_client.set(f"user_intention:{user_id}", json.dumps(envelope))
+
+    def get_intention(self, user_id: str) -> Optional[dict]:
+        """
+        Return the stored intention envelope: {"data": <json str>, "generated_at": <ISO>}.
+        Returns None if nothing has been saved.
+        """
+        if not self.redis_client:
+            return None
+        raw = self.redis_client.get(f"user_intention:{user_id}")
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
+    # Weekly Reflection — timestamped storage
+    # ------------------------------------------------------------------
+
+    def save_weekly_reflection(self, user_id: str, reflection: str) -> None:
+        """Store weekly reflection text with a UTC generation timestamp."""
+        if not self.redis_client:
+            return
+        envelope = {
+            "data": reflection,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.redis_client.set(f"user_reflection:{user_id}", json.dumps(envelope))
+
+    def get_weekly_reflection(self, user_id: str) -> Optional[dict]:
+        """
+        Return the stored reflection envelope: {"data": <text>, "generated_at": <ISO>}.
+        Returns None if nothing has been saved.
+        """
+        if not self.redis_client:
+            return None
+        raw = self.redis_client.get(f"user_reflection:{user_id}")
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
+    # History lists (past 5) — used to avoid AI repetition
+    # ------------------------------------------------------------------
+
+    def append_intention_history(self, user_id: str, suggestion_json: str, max_items: int = 5) -> None:
+        """Append a new support intention result to the user's history list (keeps last max_items)."""
+        if not self.redis_client:
+            return
+        try:
+            key = f"intention_history:{user_id}"
+            self.redis_client.rpush(key, suggestion_json)
+            self.redis_client.ltrim(key, -max_items, -1)
+        except Exception as e:
+            print(f"Error appending intention history for user {user_id}: {e}")
+
+    def get_intention_history(self, user_id: str) -> list:
+        """Retrieve the last 5 support intention results for a user (list of dicts)."""
+        if not self.redis_client:
+            return []
+        try:
+            key = f"intention_history:{user_id}"
+            raw_list = self.redis_client.lrange(key, 0, -1)
+            return [json.loads(item) for item in raw_list]
+        except Exception as e:
+            print(f"Error retrieving intention history for user {user_id}: {e}")
+            return []
+
+    def append_reflection_history(self, user_id: str, suggestion_text: str, max_items: int = 5) -> None:
+        """Append a new weekly reflection result to the user's history list (keeps last max_items)."""
+        if not self.redis_client:
+            return
+        try:
+            key = f"reflection_history:{user_id}"
+            self.redis_client.rpush(key, suggestion_text)
+            self.redis_client.ltrim(key, -max_items, -1)
+        except Exception as e:
+            print(f"Error appending reflection history for user {user_id}: {e}")
+
+    def get_reflection_history(self, user_id: str) -> list:
+        """Retrieve the last 5 weekly reflection texts for a user (list of strings)."""
+        if not self.redis_client:
+            return []
+        try:
+            key = f"reflection_history:{user_id}"
+            raw_list = self.redis_client.lrange(key, 0, -1)
+            return [item.decode("utf-8") if isinstance(item, bytes) else item for item in raw_list]
+        except Exception as e:
+            print(f"Error retrieving reflection history for user {user_id}: {e}")
+            return []
 
 # Global cache manager instance
 cache_manager = SessionCacheManager()

@@ -1,10 +1,10 @@
 from pydantic import BaseModel
-from typing import Dict, List, Any, Optional
+from typing import List, Optional
 
 
 class ReflectionRequest(BaseModel):
-    previous_reflections: Optional[List[str]] = None
-    goal: Optional[str] = None
+    user_id: str
+
 
 class ReflectionResponse(BaseModel):
     suggestion: str
