@@ -8,9 +8,27 @@ services:
       - .env
     volumes:
       - .:/app
+    depends_on:
+      - redis
     restart: unless-stopped
+    networks:
+      - suiamor_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+  redis:
+    image: redis:7-alpine
+    container_name: suiamor_ai_redis
+    ports:
+      - "6380:6379"
+    restart: unless-stopped
+    networks:
+      - suiamor_network
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+networks:
+  suiamor_network:
+    driver: bridge
