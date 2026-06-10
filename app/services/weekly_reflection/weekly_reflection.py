@@ -78,9 +78,12 @@ class Reflection:
             "- Acknowledge their focus/goal.\n"
             "- Connect insights from their previous reflections (if provided) to show their growth trajectory.\n"
             "- Offer gentle, actionable, and soulful advice for the week ahead.\n"
+            "- Be short and concise, ideally 2-4 sentences total.\n"
             "- Be written in a warm, poetic, and encouraging tone.\n"
             "- Flow naturally, using paragraphs rather than bullet points, to create a premium, cohesive reading experience.\n"
             "- Differ meaningfully from any previous reflections provided.\n\n"
+            "Example short reflection:\n"
+            "What’s one belief or habit I’m ready to release so I can move forward with more clarity and confidence?\n\n"
             "You MUST return valid JSON matching this exact structure:\n"
             "{\n"
             '  "suggestion": "Your beautiful, personalized weekly reflection and suggestion text here."\n'

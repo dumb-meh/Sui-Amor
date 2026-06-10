@@ -28,6 +28,7 @@ class affirmation_request(BaseModel):
     past_theme: Optional[List[str]] = None
     past_affirmations: Optional[List[List[str]]] = None
     religious_or_spritual_preference: Optional[str] = None
+    religious_preference_priority_score: Optional[int] = None
     holiday_preference: Optional[str] = None
     astrology_preference: Optional[str] = None
     affirmation_type: str

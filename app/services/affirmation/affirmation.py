@@ -164,36 +164,23 @@ class Affirmation:
     def _create_affirmation_prompt(self, request: affirmation_request) -> str:
         """Build the prompt for generating affirmations, dynamically based on affirmation_type."""
 
-        # Build preference context for the system prompt
-        preference_instructions = []
-        if request.religious_or_spritual_preference:
-            preference_instructions.append(
-                f"- RELIGIOUS/SPIRITUAL: The user identifies with {request.religious_or_spritual_preference} spirituality. "
-                f"Incorporate {request.religious_or_spritual_preference} values, principles, and spiritual concepts naturally into the affirmations. "
-                f"Use language and imagery that aligns with {request.religious_or_spritual_preference} tradition."
-            )
-        else:
-            preference_instructions.append("- RELIGIOUS/SPIRITUAL: Keep affirmations spiritually neutral.")
+        # Build preference context blocks
+        religious_block = self._build_religious_instructions(request)
+        astrology_block = self._build_astrology_instructions(request)
 
+        preference_lines = []
+        if religious_block:
+            preference_lines.append(religious_block)
+        if astrology_block:
+            preference_lines.append(astrology_block)
         if request.holiday_preference:
-            preference_instructions.append(
+            preference_lines.append(
                 f"- HOLIDAY: The user celebrates {request.holiday_preference}. "
-                f"Incorporate themes of {request.holiday_preference} such as celebration, renewal, gratitude, or community into the affirmations. "
+                f"Incorporate themes of {request.holiday_preference} such as celebration, renewal, gratitude, or community. "
                 f"Use imagery and symbolism associated with {request.holiday_preference}."
             )
-        else:
-            preference_instructions.append("- HOLIDAY: Keep affirmations timeless and universal.")
 
-        if request.astrology_preference:
-            preference_instructions.append(
-                f"- ASTROLOGY: The user resonates with {request.astrology_preference} energy. "
-                f"Weave in {request.astrology_preference} astrological traits, strengths, and characteristics. "
-                f"Consider the elemental nature, ruling planets, and symbolic themes of {request.astrology_preference}."
-            )
-        else:
-            preference_instructions.append("- ASTROLOGY: Avoid astrological references.")
-
-        preference_text = "\n".join(preference_instructions)
+        preference_text = "\n".join(preference_lines) if preference_lines else "- No additional preference layers. Keep affirmations universal."
 
         # Dynamic affirmation style instructions
         if request.affirmation_type == "freedom":
@@ -246,10 +233,10 @@ CRITICAL RULES:
 
 6. PROFILE AWARENESS: Use existing_profile_tags to understand the user's vibe and ensure affirmations resonate with their personality.
 
-7. PREFERENCE HANDLING - FOLLOW THESE EXACTLY:
+7. PREFERENCE LAYERS - APPLY THESE EXACTLY AS INSTRUCTED:
 {preference_text}
 
-IMPORTANT: These preferences are MANDATORY when provided. You MUST incorporate them meaningfully into the affirmations, not just mention them superficially.
+IMPORTANT: Preference layers must be applied proportionally to their influence level. Do not override the user's core goal or alignment — preferences are additive layers, not replacements.
 
 8. ENERGY CONTEXT: The user's restoration and emotional pattern responses (Q7 & Q8) are provided as secondary emotional context only. Do NOT let these dominate the tone or theme of the affirmations. They should subtly inform the emotional undertone, but the primary focus should remain on the user's goals, alignments, and preferences."""
 
@@ -265,15 +252,146 @@ IMPORTANT: These preferences are MANDATORY when provided. You MUST incorporate t
             "affirmation_type": request.affirmation_type,
         }
 
-        # Add preferences to payload if they exist
+        # Add active preference fields to payload for AI reference
         if request.religious_or_spritual_preference:
             user_payload["religious_or_spiritual_preference"] = request.religious_or_spritual_preference
-        if request.holiday_preference:
-            user_payload["holiday_preference"] = request.holiday_preference
+            user_payload["religious_influence_score"] = request.religious_preference_priorit_score
         if request.astrology_preference:
             user_payload["astrology_preference"] = request.astrology_preference
+        if request.holiday_preference:
+            user_payload["holiday_preference"] = request.holiday_preference
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
+
+    # ------------------------------------------------------------------
+    # Preference instruction builders
+    # ------------------------------------------------------------------
+
+    # Themes and wording directions per broad category
+    _RELIGIOUS_THEMES = {
+        "abrahamic": {
+            "label": "Abrahamic traditions (Christianity, Islam, Judaism, and related faiths)",
+            "themes": ["faith", "perseverance", "grace", "redemption", "guidance", "purpose", "renewal"],
+            "wording": (
+                "Use language rooted in faith, divine guidance, and grace. "
+                "Words like 'blessed', 'grace', 'purpose', 'surrender to guidance', and 'renewed by faith' "
+                "are welcome. Avoid naming specific denominations."
+            ),
+        },
+        "eastern": {
+            "label": "Eastern traditions (Buddhism, Hinduism, Taoism, Sikhism, Jainism, and related paths)",
+            "themes": ["mindfulness", "balance", "harmony", "compassion", "stillness", "detachment", "inner peace"],
+            "wording": (
+                "Use language rooted in inner stillness, non-attachment, and compassion. "
+                "Words like 'present moment', 'flow', 'balance', 'harmony', 'release', and 'equanimity' "
+                "are welcome. Keep it universal across Eastern traditions."
+            ),
+        },
+        "spiritual": {
+            "label": "Spiritual / Nature / Energy-based (meditation, ancestral, nature, energy work)",
+            "themes": ["grounding", "intuition", "connectedness", "cycles", "growth", "energy", "reflection"],
+            "wording": (
+                "Use language rooted in natural cycles, energetic connection, and inner knowing. "
+                "Words like 'rooted', 'aligned', 'energy', 'intuition', 'cycles of growth', and 'connected to all' "
+                "are welcome. Keep the tone expansive and nature-aware."
+            ),
+        },
+    }
+
+    # Influence level descriptions for 1–5 score
+    _INFLUENCE_LEVELS = {
+        1: "Do NOT use any spiritual or religious language. Keep affirmations fully secular and universal.",
+        2: "Apply only the lightest touch of spiritual language — one or two words at most across all 12 affirmations.",
+        3: "Weave spiritual themes in moderately — present in roughly half the affirmations, but never overpowering the core message.",
+        4: "Apply spiritual themes with strong presence — most affirmations should carry the wording direction and selected themes.",
+        5: "Let spiritual themes define the tone — every affirmation should reflect the wording direction and associated themes of this tradition.",
+    }
+
+    # Zodiac sign traits
+    _ZODIAC_TRAITS = {
+        "aries":       ["confidence", "initiative", "courage", "ambition", "action"],
+        "taurus":      ["stability", "patience", "loyalty", "grounding", "resilience"],
+        "gemini":      ["curiosity", "adaptability", "communication", "creativity", "energy"],
+        "cancer":      ["emotional depth", "protection", "intuition", "nurturing", "sensitivity"],
+        "leo":         ["leadership", "confidence", "passion", "expression", "warmth"],
+        "virgo":       ["discipline", "growth", "reflection", "organization", "improvement"],
+        "libra":       ["balance", "harmony", "connection", "diplomacy", "beauty"],
+        "scorpio":     ["transformation", "intensity", "determination", "depth", "resilience"],
+        "sagittarius": ["exploration", "optimism", "freedom", "learning", "expansion"],
+        "capricorn":   ["discipline", "ambition", "structure", "persistence", "responsibility"],
+        "aquarius":    ["individuality", "innovation", "independence", "vision", "originality"],
+        "pisces":      ["imagination", "compassion", "intuition", "healing", "emotional openness"],
+    }
+
+    def _build_religious_instructions(self, request: affirmation_request) -> str:
+        """
+        Build the religious/spiritual preference instruction block.
+
+        Returns an empty string when:
+        - No preference is set (None / empty)
+        - The preference maps to no known category
+        - The score is 1 (user explicitly wants no spiritual language)
+        """
+        pref = (request.religious_or_spritual_preference or "").strip().lower()
+        if not pref:
+            return ""
+
+        # Resolve broad category from the raw preference string
+        if pref in ("abrahamic", "abrahamic traditions"):
+            category_key = "abrahamic"
+        elif pref in ("eastern", "eastern traditions"):
+            category_key = "eastern"
+        elif pref in ("spiritual", "spiritual / nature / energy-based", "nature", "energy"):
+            category_key = "spiritual"
+        else:
+            # Unknown category — skip silently
+            return ""
+
+        # Resolve influence score (default to 3 if not provided or unparseable)
+        try:
+            score = int(request.religious_preference_priorit_score)
+            score = max(1, min(5, score))  # clamp 1–5
+        except (TypeError, ValueError):
+            score = 3
+
+        if score == 1:
+            # Score 1 = user explicitly wants no spiritual influence at all
+            return "- RELIGIOUS/SPIRITUAL: Keep affirmations fully secular. Do NOT use any spiritual or religious language whatsoever."
+
+        cat = self._RELIGIOUS_THEMES[category_key]
+        influence_instruction = self._INFLUENCE_LEVELS[score]
+        themes_str = ", ".join(cat["themes"])
+
+        return (
+            f"- RELIGIOUS/SPIRITUAL ({cat['label']}, influence level {score}/5):\n"
+            f"  Influence rule: {influence_instruction}\n"
+            f"  Associated themes to draw from: {themes_str}\n"
+            f"  Wording direction: {cat['wording']}"
+        )
+
+    def _build_astrology_instructions(self, request: affirmation_request) -> str:
+        """
+        Build the astrology preference instruction block.
+
+        Astrology is treated as a LIGHT seasonal personalisation layer only.
+        It must never dominate the affirmation tone or theme.
+        Returns an empty string when no preference is set.
+        """
+        sign = (request.astrology_preference or "").strip().lower()
+        if not sign:
+            return ""
+
+        traits = self._ZODIAC_TRAITS.get(sign)
+        if not traits:
+            return ""
+
+        traits_str = ", ".join(traits)
+        return (
+            f"- ASTROLOGY ({sign.capitalize()} energy — light seasonal layer only):\n"
+            f"  Subtly weave 1–2 of these traits into a small number of affirmations (not all 12): {traits_str}.\n"
+            f"  This must feel like a whisper of personalisation, NOT the defining tone. "
+            f"The user's goal and alignments remain the primary focus."
+        )
 
     def _create_quiz_summary_prompt(self, request: affirmation_request) -> str:
         """Build the prompt for generating quiz summary (separate LLM call)."""
