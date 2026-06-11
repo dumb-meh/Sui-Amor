@@ -242,7 +242,7 @@ class SessionCacheManager:
             return None
 
     # ------------------------------------------------------------------
-    # History lists (past 5) — used to avoid AI repetition
+    # History lists — used to avoid AI repetition
     # ------------------------------------------------------------------
 
     def append_intention_history(self, user_id: str, suggestion_json: str, max_items: int = 5) -> None:
@@ -289,6 +289,45 @@ class SessionCacheManager:
             return [item.decode("utf-8") if isinstance(item, bytes) else item for item in raw_list]
         except Exception as e:
             print(f"Error retrieving reflection history for user {user_id}: {e}")
+            return []
+
+    def append_daily_feeling_history(
+        self,
+        user_id: str,
+        feeling: str,
+        reason: str,
+        ai_response: str,
+        max_items: int = 10,
+    ) -> None:
+        """Append a daily feeling entry and keep only the last max_items records."""
+        if not self.redis_client or not user_id:
+            return
+
+        try:
+            key = f"daily_feelings_history:{user_id}"
+            entry = json.dumps(
+                {
+                    "feeling": feeling,
+                    "reason": reason,
+                    "ai_response": ai_response,
+                }
+            )
+            self.redis_client.rpush(key, entry)
+            self.redis_client.ltrim(key, -max_items, -1)
+        except Exception as e:
+            print(f"Error appending daily feeling history for user {user_id}: {e}")
+
+    def get_daily_feelings_history(self, user_id: str) -> list:
+        """Retrieve the last 10 daily feeling entries for a user (list of dicts)."""
+        if not self.redis_client or not user_id:
+            return []
+
+        try:
+            key = f"daily_feelings_history:{user_id}"
+            raw_list = self.redis_client.lrange(key, 0, -1)
+            return [json.loads(item) for item in raw_list]
+        except Exception as e:
+            print(f"Error retrieving daily feeling history for user {user_id}: {e}")
             return []
 
 # Global cache manager instance
