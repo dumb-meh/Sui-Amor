@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.services.daily_feelings.daily_feelings import DailyFeelingsService
 from app.services.affirmation.affirmation_route import router as affirmation_router
 from app.services.alignment.alignment_route import router as alignment_router
 from app.services.quiz_evaluation.quiz_evaluation_route import router as quiz_evaluation_router
@@ -33,6 +33,7 @@ app.include_router(weekly_reflection_router)
 app.include_router(support_intention_router)
 app.include_router(chatbot_router)
 app.include_router(quotations_router)
+app.include_router(daily_feelings_router, tags=["Daily Feelings"])
 
 
 @app.get("/", tags=["Health"])

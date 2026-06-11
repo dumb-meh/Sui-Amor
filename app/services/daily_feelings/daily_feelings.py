@@ -4,7 +4,7 @@ from app.core.config import settings
 from app.utils.cache_manager import cache_manager
 
 
-class ChatbotService:
+class DailyFeelingsService:
     def __init__(self):
         self.client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
         self.model = settings.OPENAI_MODEL

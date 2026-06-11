@@ -5,7 +5,7 @@ import random
 import re
 from typing import Any, Optional
 
-import pandas as pd
+from openpyxl import load_workbook
 
 from app.utils.cache_manager import cache_manager
 from .quotations_schema import QuotationItem
@@ -37,6 +37,78 @@ class QuotationsService:
 		for key, value in row.items():
 			normalized_row[self._normalize_column_name(key)] = value
 		return normalized_row
+
+	def _cell_value(self, value: Any) -> Any:
+		if value is None:
+			return ""
+		return value
+
+	def _row_has_meaningful_data(self, row: list[Any]) -> bool:
+		return any(self._normalize_text(cell) for cell in row)
+
+	def _detect_header_row(self, rows: list[list[Any]]) -> tuple[int, list[str]]:
+		required_markers = {"goal", "quote"}
+		for index, row in enumerate(rows[:25]):
+			normalized_headers = [self._normalize_column_name(cell) for cell in row]
+			non_empty_headers = [header for header in normalized_headers if header]
+			if not non_empty_headers:
+				continue
+
+			marker_set = set(non_empty_headers)
+			if required_markers.issubset(marker_set):
+				return index, normalized_headers
+
+			if "quote" in marker_set and len(marker_set.intersection({"goal", "attribution_display", "religious_filter", "content_type"})) >= 1:
+				return index, normalized_headers
+
+		raise RuntimeError("Could not detect a header row in the uploaded worksheet")
+
+	def _build_records_from_sheet(self, excel_bytes: bytes) -> tuple[list[dict[str, Any]], list[str], str]:
+		workbook = load_workbook(io.BytesIO(excel_bytes), data_only=True, read_only=True)
+		worksheet = workbook[workbook.sheetnames[0]]
+		rows = worksheet.iter_rows(values_only=True)
+		buffered_rows: list[list[Any]] = []
+		headers_row_index = -1
+		headers: list[str] = []
+
+		for index, row in enumerate(rows):
+			row_values = [self._cell_value(cell) for cell in row]
+			buffered_rows.append(row_values)
+			if index >= 24:
+				headers_row_index, headers = self._detect_header_row(buffered_rows)
+				break
+
+		if headers_row_index == -1:
+			headers_row_index, headers = self._detect_header_row(buffered_rows)
+
+		records: list[dict[str, Any]] = []
+
+		for row in buffered_rows[headers_row_index + 1 :]:
+			if not self._row_has_meaningful_data(row):
+				continue
+
+			record: dict[str, Any] = {}
+			for index, header in enumerate(headers):
+				if not header:
+					continue
+				value = row[index] if index < len(row) else None
+				record[header] = value
+			records.append(record)
+
+		for row in rows:
+			row_values = [self._cell_value(cell) for cell in row]
+			if not self._row_has_meaningful_data(row_values):
+				continue
+
+			record = {}
+			for index, header in enumerate(headers):
+				if not header:
+					continue
+				value = row_values[index] if index < len(row_values) else None
+				record[header] = value
+			records.append(record)
+
+		return records, headers, worksheet.title
 
 	def _parse_tags(self, value: Any) -> list[str] | None:
 		text = self._normalize_text(value)
@@ -85,10 +157,30 @@ class QuotationsService:
 
 	def upload_excel(self, excel_bytes: bytes) -> int:
 		redis_client = self._ensure_redis()
-		dataframe = pd.read_excel(io.BytesIO(excel_bytes))
-		dataframe.columns = [self._normalize_column_name(column) for column in dataframe.columns]
-		records = dataframe.fillna("").to_dict(orient="records")
-		items = [self._row_to_item(record).model_dump() for record in records if self._normalize_text(record.get("quote"))]
+		records, headers, sheet_name = self._build_records_from_sheet(excel_bytes)
+		print(f"[QUOTATIONS] Uploaded sheet: {sheet_name}")
+		print(f"[QUOTATIONS] Detected headers: {headers}")
+		print(f"[QUOTATIONS] Total raw rows: {len(records)}")
+		if records:
+			first_row = records[0]
+			print(f"[QUOTATIONS] First normalized row keys: {list(first_row.keys())}")
+			print(f"[QUOTATIONS] First normalized row sample: {first_row}")
+
+		items = []
+		filtered_out = 0
+		for record in records:
+			normalized_record = self._normalize_row(record)
+			if not self._normalize_text(normalized_record.get("quote")):
+				filtered_out += 1
+				continue
+			items.append(self._row_to_item(record).model_dump())
+
+		print(f"[QUOTATIONS] Filtered out rows without quote text: {filtered_out}")
+		print(f"[QUOTATIONS] Parsed quote items: {len(items)}")
+		if items:
+			print(f"[QUOTATIONS] First parsed item: {items[0]}")
+		else:
+			print("[QUOTATIONS] No items parsed from the uploaded file")
 		redis_client.set(self.CATALOG_KEY, json.dumps(items))
 		return len(items)
 

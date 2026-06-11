@@ -270,7 +270,7 @@ IMPORTANT: Preference layers must be applied proportionally to their influence l
     # Themes and wording directions per broad category
     _RELIGIOUS_THEMES = {
         "abrahamic": {
-            "label": "Abrahamic traditions (Christianity, Islam, Judaism, and related faiths)",
+            "label": "Abrahamic traditions",
             "themes": ["faith", "perseverance", "grace", "redemption", "guidance", "purpose", "renewal"],
             "wording": (
                 "Use language rooted in faith, divine guidance, and grace. "

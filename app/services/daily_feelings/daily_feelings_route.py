@@ -4,7 +4,7 @@ from .daily_feelings import ChatbotService
 
 
 router = APIRouter(tags=["Daily Feelings"])
-chatbot_service = ChatbotService()
+chatbot_service = DailyFeelingsService()
 
 
 
