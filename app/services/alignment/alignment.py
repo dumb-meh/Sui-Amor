@@ -112,7 +112,11 @@ class Alignment:
         
         if tier1_results:
             print(f"[DEBUG] ✓ Returning Tier 1 results (exact match)")
-            return self._format_results(tier1_results[:max_results], "exact")
+            # Collect up to max_per_type results per alignment type so that
+            # SOLOs (1 component) are not squeezed out by SYNERGY/HARMONY (2 components)
+            balanced = self._balance_by_type(tier1_results, max_per_type=5)
+            print(f"[DEBUG] Balanced tier 1 results: {len(balanced)} (from {len(tier1_results)} total)")
+            return self._format_results(balanced[:max_results], "exact")
         
         # TIER 2: Axis distance match (deterministic)
         print(f"[DEBUG] === TIER 2: Axis Distance Match ===")
@@ -128,7 +132,8 @@ class Alignment:
         
         if tier2_results and tier2_results[0]["distance"] < self.axis_distance_threshold:
             print(f"[DEBUG] ✓ Returning Tier 2 results (axis distance)")
-            return self._format_results(tier2_results[:max_results], "axis")
+            balanced = self._balance_by_type(tier2_results, max_per_type=4)
+            return self._format_results(balanced[:max_results], "axis")
         
         # NO TIER 3: If no matching alignments exist, return empty
         print(f"[DEBUG] === NO MATCHES FOUND ===")
@@ -184,12 +189,11 @@ class Alignment:
         # Prefer ordered matches, fallback to unordered if none found
         if ordered_matches:
             print(f"[DEBUG] Tier 1: Found {len(ordered_matches)} ordered matches (using these)")
-            # Sort by number of components (more specific alignments first)
-            ordered_matches.sort(key=lambda x: len(x["alignment"]["components"]), reverse=True)
+            # Keep in discovery order (which follows user selection order).
+            # Balancing by type is done in match() before the final slice.
             return ordered_matches
         elif unordered_matches:
             print(f"[DEBUG] Tier 1: No ordered matches, using {len(unordered_matches)} unordered matches as fallback")
-            unordered_matches.sort(key=lambda x: len(x["alignment"]["components"]), reverse=True)
             return unordered_matches
         else:
             return []
@@ -343,6 +347,48 @@ class Alignment:
         
         return False
     
+    def _balance_by_type(
+        self,
+        results: List[Dict[str, Any]],
+        max_per_type: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Collect up to max_per_type results per alignment type (SOLO, SYNERGY, HARMONY, etc.)
+        then interleave them so that every type gets representation before the global
+        max_results cap is applied.
+
+        Without this, 2-component alignments (SYNERGY/HARMONY) outnumber 1-component
+        alignments (SOLO) and the slice [:max_results] cuts all SOLOs off.
+
+        Returns results interleaved: [SOLO_1, SYNERGY_1, HARMONY_1, SOLO_2, SYNERGY_2, ...]
+        """
+        buckets: Dict[str, List[Dict[str, Any]]] = {}
+        for result in results:
+            atype = result["alignment"]["type"]
+            if atype not in buckets:
+                buckets[atype] = []
+            if len(buckets[atype]) < max_per_type:
+                buckets[atype].append(result)
+
+        # Interleave: take one from each bucket in round-robin until all buckets exhausted
+        interleaved = []
+        type_order = list(buckets.keys())
+        indices = {t: 0 for t in type_order}
+
+        while True:
+            added_any = False
+            for atype in type_order:
+                bucket = buckets[atype]
+                idx = indices[atype]
+                if idx < len(bucket):
+                    interleaved.append(bucket[idx])
+                    indices[atype] += 1
+                    added_any = True
+            if not added_any:
+                break
+
+        return interleaved
+
     def _format_results(self, raw_results: List[Dict[str, Any]], tier: str) -> List[Dict[str, Any]]:
         """
         Format results for quiz_evaluation service.
