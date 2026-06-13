@@ -16,14 +16,16 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-download ChromaDB embedding model (so it doesn't download at runtime)
-RUN python3 -c "import chromadb; from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2; ef = ONNXMiniLM_L6_V2(); ef(['test'])"
+# Pre-download ChromaDB embedding model into appuser's cache (matches runtime user)
+RUN adduser --disabled-password --gecos '' appuser && \
+    mkdir -p /home/appuser/.cache && \
+    chown -R appuser:appuser /home/appuser && \
+    su appuser -s /bin/sh -c "python3 -c \"import chromadb; from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2; ef = ONNXMiniLM_L6_V2(); ef(['test'])\""
 
 COPY . .
 
 RUN mkdir -p .chroma app/services/affirmation/cache app/services/alignment/data && \
     chmod -R 777 .chroma app/services/affirmation/cache app/services/alignment/data && \
-    adduser --disabled-password --gecos '' appuser && \
     chown -R appuser:appuser /app
 
 USER appuser
