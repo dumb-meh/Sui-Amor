@@ -19,7 +19,7 @@ class AlignmentDataStore:
             csv_path: Path to CSV file. Defaults to data/alignments.csv
             persist_dir: ChromaDB persistence directory. Defaults to .chroma
         """
-        self.csv_path = Path(csv_path) if csv_path else Path(__file__).parent / "data" / "alignments.csv"
+        self.csv_path = Path(csv_path) if csv_path else Path(__file__).parent / "data" / "aligment_sheet.csv"
         self.persist_dir = Path(persist_dir) if persist_dir else Path.cwd() / ".chroma"
         
         # In-memory stores
@@ -59,37 +59,32 @@ class AlignmentDataStore:
         # Parse file (supports CSV and Excel)
         df = self._load_dataframe(self.csv_path)
         
-        # Debug: Check what values Is_Selectable has
-        if "Is_Selectable" in df.columns:
-            unique_values = df["Is_Selectable"].unique()
-            print(f"[DEBUG] Is_Selectable unique values: {unique_values}")
-        
-        # Separate answers from alignments
-        # Handle both "TRUE" (string) and True (boolean)
-        answers_df = df[
-            (df["Is_Selectable"].astype(str).str.upper() == "TRUE") | 
-            (df["Is_Selectable"] == True)
+        # Separate answers from alignments using new CSV format:
+        # - Answers are derived from SOLO rows (component_id = Alignment_Components, text = Alignment_Name)
+        # - Alignments are all rows with a non-empty Alignment_Type (SOLO, SYNERGY, HARMONY, etc.)
+        solo_df = df[
+            df["Alignment_Type"].astype(str).str.strip().str.upper() == "SOLO"
         ].copy()
         
         # Alignments have non-empty Alignment_Type
         alignments_df = df[df["Alignment_Type"].notna() & (df["Alignment_Type"].astype(str).str.strip() != "")].copy()
         
-        print(f"[DEBUG] Parsed CSV: {len(answers_df)} answer rows, {len(alignments_df)} alignment rows")
+        print(f"[DEBUG] Parsed CSV: {len(solo_df)} SOLO rows (answers), {len(alignments_df)} alignment rows")
         
-        # Build answer dictionary
+        # Build answer dictionary from SOLO rows
+        # Each SOLO row: component_id = Alignment_Components, text = Alignment_Name
         self.answers = {}
-        for _, row in answers_df.iterrows():
-            answer_id = str(row["Answer_ID"]).strip()
+        for _, row in solo_df.iterrows():
+            components_str = str(row.get("Alignment_Components", "")).strip()
+            # SOLO always has a single component (no '+')
+            answer_id = components_str
             if not answer_id or answer_id == "nan":
                 continue
             
             self.answers[answer_id] = {
                 "answer_id": answer_id,
-                "question_id": str(row.get("Question_ID", "")).strip(),
-                "question_text": str(row.get("Question_Text", "")).strip(),
-                "text": str(row.get("Answer_Text", "")).strip(),
+                "text": str(row.get("Alignment_Name", "")).strip(),
                 "category": str(row.get("Category", "")).strip(),
-                "parent": str(row.get("Parent_Answer_ID", "")).strip() if pd.notna(row.get("Parent_Answer_ID")) else None,
                 "axes": {
                     "energy": self._safe_float(row.get("Axis_Energy")),
                     "pace": self._safe_float(row.get("Axis_Pace")),

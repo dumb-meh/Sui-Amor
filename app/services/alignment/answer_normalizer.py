@@ -25,20 +25,54 @@ class AnswerNormalizer:
             # Add exact match (case-insensitive)
             self.text_to_id[text.lower().strip()] = answer_id
             
-            # Add variations
-            # Remove special characters for fuzzy matching
+            # Add cleaned version (removes special chars)
             clean_text = self._clean_text(text)
             if clean_text != text.lower().strip():
                 self.text_to_id[clean_text] = answer_id
+            
+            # Add short label: the part before a separator like " - ", " – ", " — "
+            # e.g. "Blue - The Strength That Flows" -> also index "Blue"
+            # e.g. "WRITING – Thought seeking form." -> also index "writing"
+            short_label = self._extract_short_label(text)
+            if short_label and short_label != text.lower().strip():
+                self.text_to_id[short_label] = answer_id
+                clean_short = self._clean_text(short_label)
+                if clean_short not in self.text_to_id:
+                    self.text_to_id[clean_short] = answer_id
     
     def _clean_text(self, text: str) -> str:
         """Clean text for fuzzy matching."""
         text = text.lower().strip()
+        # Normalize ampersand to 'and' so "Tea & Soft" matches "Tea and Soft"
+        text = text.replace('&', 'and')
         # Remove special chars but keep spaces
-        text = ''.join(c if c.isalnum() or c.isspace() else '' for c in text)
+        text = ''.join(c if c.isalnum() or c.isspace() else ' ' for c in text)
         # Normalize whitespace
         text = ' '.join(text.split())
         return text
+    
+    def _extract_short_label(self, text: str) -> Optional[str]:
+        """
+        Extract the short user-facing label from a full SOLO name.
+        
+        SOLO names in the CSV follow patterns like:
+          "Blue - The Strength That Flows"       -> "blue"
+          "WRITING – Thought seeking form."      -> "writing"
+          "Pop / Dance – Solo"                   -> "pop / dance"
+          "Joy & Happiness – Solo"               -> "joy & happiness"
+          "Beaches & Coastal Shores – The..."    -> "beaches & coastal shores"
+        
+        Splits on unicode dashes and regular hyphen-space sequences.
+        Returns the lowercase prefix, or None if no separator found.
+        """
+        # Ordered by specificity — unicode en-dash / em-dash variants first
+        separators = [' \u2013 ', ' \u2014 ', '\u2013 ', '\u2014 ', ' - ']
+        for sep in separators:
+            if sep in text:
+                prefix = text.split(sep)[0].strip()
+                if prefix:
+                    return prefix.lower().strip()
+        return None
     
     def normalize_answer(self, answer_text: str) -> Optional[str]:
         """

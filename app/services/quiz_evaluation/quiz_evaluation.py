@@ -40,6 +40,7 @@ class QuizEvaluation:
                 harmonies={"items": []},
                 resonances={"items": []},
                 polarities={"items": []},
+                solos={"items": []},
                 profile_tags=[]
             )
         
@@ -51,7 +52,7 @@ class QuizEvaluation:
         solos = [self._format_item(m) for m in matches if m["type"] == "SOLO"][:3]
         
         # If no specific types, put everything in synergies
-        if not (synergies or harmonies or resonances or polarities):
+        if not (synergies or harmonies or resonances or polarities or solos):
             synergies = [self._format_item(m) for m in matches[:3]]
         
         # Generate profile tags with AI (only creative part)
@@ -62,6 +63,7 @@ class QuizEvaluation:
             harmonies={"items": harmonies},
             resonances={"items": resonances},
             polarities={"items": polarities},
+            solos={"items": solos},
             profile_tags=profile_tags
         )
     

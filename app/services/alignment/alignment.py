@@ -24,7 +24,7 @@ class Alignment:
         """
         # Initialize data store
         if csv_path is None:
-            csv_path = Path(__file__).parent / "data" / "alignments.csv"
+            csv_path = Path(__file__).parent / "data" / "aligment_sheet.csv"
         
         print(f"[DEBUG] Initializing Alignment with CSV: {csv_path}")
         

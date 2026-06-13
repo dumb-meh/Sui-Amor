@@ -21,4 +21,5 @@ class QuizEvaluationResponse(BaseModel):
     harmonies: Optional[Dict[str, Any]]
     resonances: Optional[Dict[str, Any]]
     polarities: Optional[Dict[str, Any]]
+    solos: Optional[Dict[str, Any]]
     profile_tags: Optional[List[str]]
