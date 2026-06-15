@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional,List, Any, Dict
 
 class HistoryItem(BaseModel):
@@ -14,9 +14,17 @@ class QuizItem(BaseModel):
     answers: Optional[List[str]] = None
     sub_questions: Optional[List[SubQuestion]] = None 
     
+class ScentDirections(BaseModel):
+    """Scent options for a single goal, split by emotional direction."""
+    model_config = {"populate_by_name": True}
+
+    Neutral: List[str]
+    Elevating_Energizing: List[str] = Field(alias="Elevating/Energizing")
+    Calming_Grounding: List[str] = Field(alias="Calming/Grounding")
+
 class ScentItem(BaseModel):
     goal: str
-    value: List[str] | str
+    directions: ScentDirections
     
 class affirmation_request(BaseModel):
     existing_profile_tags: Optional[List[str]] = None

@@ -471,12 +471,12 @@ IMPORTANT:
         
         system_prompt = """You are an expert scent curator who selects personalized fragrances based on user preferences and personality alignments.
 
-Your task is to identify the base scent from the user's goal preferences, and add ONE secondary scent modifier based on intensity tier.
+Your task is to identify the base scent from the user's goal preferences using the correct emotional direction, and add ONE secondary scent modifier based on intensity tier.
 
 You MUST return valid JSON matching this exact structure:
 {
-  "base_scent": ["Sweet Orange", "Lemon", "Jasmine"] or "Lavender",
-  "tertiary_scent": ["Rose", "Vanilla"] or "Rose"
+  "base_scent": ["Sweet Orange", "Lemon", "Jasmine"],
+  "tertiary_scent": ["Rose", "Vanilla"]
 }
 
 CRITICAL STEP-BY-STEP PROCESS:
@@ -486,20 +486,28 @@ CRITICAL STEP-BY-STEP PROCESS:
    - Extract ALL goal answers the user selected
    - Example: User selected ["Joy & Happiness", "Self-Worth & Acceptance"]
 
-2. MATCH GOALS TO SCENTS:
+2. MAP INTENSITY TIER TO DIRECTION:
+   Each goal in base_scent_info now has THREE directional scent lists instead of one.
+   Use intensity_tier to pick the correct direction for EVERY goal:
+
+   intensity_tier = "Low"  → use the "Calming/Grounding" scent list for each goal
+   intensity_tier = "Mid"  → use the "Neutral" scent list for each goal
+   intensity_tier = "High" → use the "Elevating/Energizing" scent list for each goal
+
+3. MATCH GOALS TO SCENTS:
    - For EACH goal the user selected, find it in base_scent_info
-   - Extract the "value" field (NOT the "goal" field) from base_scent_info
-   - Combine all values into one list or string
-   - Example: 
-     * "Joy & Happiness" in base_scent_info has value: ["Sweet Orange", "Lemon", "Jasmine"]
-     * "Self-Worth & Acceptance" in base_scent_info has value: ["Patchouli", "Neroli", "Cedarwood"]
-     * Combined base_scent: ["Sweet Orange", "Lemon", "Jasmine", "Patchouli", "Neroli", "Cedarwood"]
+   - Pick the scent list for the direction determined in step 2
+   - Combine all picked lists into one flat list for base_scent
+   - Example (intensity_tier = "High"):
+     * "Joy & Happiness" → Elevating/Energizing: ["Lime", "Bergamot", "Ginger"]
+     * "Self-Worth & Acceptance" → Elevating/Energizing: ["Cardamom", "Clary Sage"]
+     * Combined base_scent: ["Lime", "Bergamot", "Ginger", "Cardamom", "Clary Sage"]
 
-3. IMPORTANT - RETURN THE SCENT NAMES, NOT GOAL NAMES:
+4. IMPORTANT - RETURN THE SCENT NAMES, NOT GOAL NAMES:
    ❌ WRONG: {"base_scent": ["Joy & Happiness", "Self-Worth & Acceptance"]}
-   ✅ CORRECT: {"base_scent": ["Sweet Orange", "Lemon", "Jasmine", "Patchouli", "Neroli", "Cedarwood"]}
+   ✅ CORRECT: {"base_scent": ["Lime", "Bergamot", "Ginger", "Cardamom", "Clary Sage"]}
 
-4. SELECT SECONDARY SCENT (tertiary_scent field):
+5. SELECT SECONDARY SCENT (tertiary_scent field):
    CRITICAL RULES:
    - You are provided with intensity_tier (Low, Mid, or High) calculated from Q7 & Q8 weights
    - You are provided with goal_modifiers mapping each goal to Low/High modifier scents
@@ -526,25 +534,38 @@ REAL EXAMPLE WITH ACTUAL DATA STRUCTURE:
 
 base_scent_info provided:
 [
-  {"goal": "Joy & Happiness", "value": ["Sweet Orange", "Lemon", "Jasmine"]},
-  {"goal": "Self-Worth & Acceptance", "value": ["Patchouli", "Neroli", "Cedarwood"]},
-  {"goal": "Inner Peace & Balance", "value": ["Lavender", "Clary Sage", "Sandalwood"]}
+  {
+    "goal": "Joy & Happiness",
+    "directions": {
+      "Neutral": ["Sweet Orange", "Lemon", "Jasmine"],
+      "Elevating/Energizing": ["Lime", "Bergamot", "Ginger"],
+      "Calming/Grounding": ["Vanilla", "Sandalwood", "Ylang Ylang"]
+    }
+  },
+  {
+    "goal": "Self-Worth & Acceptance",
+    "directions": {
+      "Neutral": ["Patchouli", "Neroli", "Cedarwood"],
+      "Elevating/Energizing": ["Cardamom", "Clary Sage", "Geranium"],
+      "Calming/Grounding": ["Myrrh", "Vetiver", "Frankincense"]
+    }
+  }
 ]
 
 User's quiz answer: "What Is Your Goal?" → ["Joy & Happiness", "Self-Worth & Acceptance"]
+intensity_tier: "High"
 
 Correct response:
 {
-  "base_scent": ["Sweet Orange", "Lemon", "Jasmine", "Patchouli", "Neroli", "Cedarwood"],
-  "tertiary_scent": ["Vanilla", "Rose"]
+  "base_scent": ["Lime", "Bergamot", "Ginger", "Cardamom", "Clary Sage", "Geranium"],
+  "tertiary_scent": ["Clary Sage"]
 }
 
 CRITICAL REMINDERS:
-- base_scent MUST contain the actual scent names from the "value" field
+- base_scent MUST contain the actual scent names from the direction matching intensity_tier
 - NEVER return goal names in base_scent
-- If user has multiple goals, combine all their scent values
+- If user has multiple goals, combine all their direction-matched scent values
 - Secondary scent (tertiary_scent) MUST follow the intensity_tier and goal_modifiers rules
-- Use FULL Q7/Q8 weights (already calculated and provided as intensity_tier)
 - Add ONLY one modifier, do not replace base oils"""
 
         # Convert quiz data to readable format
@@ -563,12 +584,18 @@ CRITICAL REMINDERS:
                 question_data["sub_questions"] = sub_q_data
             quiz_summary.append(question_data)
 
-        # Convert base_scent_info to dict format
+        # Serialise base_scent_info with the new three-direction structure.
+        # The AI receives {goal, directions: {Neutral, Elevating/Energizing, Calming/Grounding}}
+        # and picks the direction matching intensity_tier.
         scent_mapping = []
         for scent_item in request.base_scent_info:
             scent_mapping.append({
                 "goal": scent_item.goal,
-                "value": scent_item.value
+                "directions": {
+                    "Neutral": scent_item.directions.Neutral,
+                    "Elevating/Energizing": scent_item.directions.Elevating_Energizing,
+                    "Calming/Grounding": scent_item.directions.Calming_Grounding,
+                }
             })
 
         user_payload = {
