@@ -9,7 +9,7 @@ from app.services.weekly_reflection.weekly_reflection_route import router as wee
 from app.services.support_intention.support_intention_route import router as support_intention_router
 from app.services.Chatbot.chatbot_route import router as chatbot_router
 from app.services.quotations.quotations_route import router as quotations_router
-from app.services.direction_matrix.direction_matrix_route import router as direction_matrix_router
+from app.utils.direction_matrix_route import router as direction_matrix_router
 
 app = FastAPI(
     title="Sui Amor",

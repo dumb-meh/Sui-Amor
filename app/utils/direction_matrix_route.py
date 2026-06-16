@@ -1,5 +1,5 @@
 """
-Direction Matrix admin endpoint.
+Direction Matrix admin router.
 
 POST /admin/upload-direction-matrix
     Accepts an Excel file (.xlsx / .xls) or a CSV file.
