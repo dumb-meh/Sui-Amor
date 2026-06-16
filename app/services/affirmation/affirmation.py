@@ -53,13 +53,13 @@ class Affirmation:
     def generate_affirmations(self, request: affirmation_request) -> affirmation_response:
         """Generate 12 affirmations based on quiz data and alignments, avoiding past themes."""
         
-        # Calculate intensity tier from Q7 and Q8
-        intensity_tier = self._calculate_intensity_tier(request.quizdata)
+        # Resolve scent direction from the direction matrix (Q9+Q2+Q8+Q10 lookup)
+        direction = self._resolve_direction_from_matrix(request.quizdata)
         
         # Make three LLM calls separately
         affirmation_prompt = self._create_affirmation_prompt(request)
         summary_prompt = self._create_quiz_summary_prompt(request)
-        scent_prompt = self._create_scent_prompt(request, intensity_tier)
+        scent_prompt = self._create_scent_prompt(request, direction)
         
         # Call all three (could be parallelized in future if needed)
         affirmation_data = self._get_openai_response(affirmation_prompt, model=self.reasoning_model)
@@ -115,51 +115,70 @@ class Affirmation:
             pass
         return ""
     
-    def _calculate_intensity_tier(self, quizdata: list) -> str:
-        """Calculate intensity tier from Q7 (Restoration) and Q8 (Emotional Pattern) weights."""
-        q7_weight = None
-        q8_weight = None
-        
-        # Extract weights from quiz data
+    def _resolve_direction_from_matrix(self, quizdata: list) -> str:
+        """
+        Determine the scent direction (Calming / Neutral / Energizing) for a
+        user by looking up their Q9 goal + Q2 identity + Q8 emotional state +
+        Q10 obstacle combination in the uploaded direction matrix.
+
+        Falls back to "Neutral" if the matrix has not been uploaded yet or
+        the user's specific combination is not found.
+
+        Returns one of: "Calming", "Neutral", "Energizing"
+        """
+        from app.utils.direction_matrix import resolve_direction_for_goals
+
+        # ---- Extract Q9 goals -------------------------------------------------
+        goals: list[str] = []
         for item in quizdata:
-            question_lower = item.question.lower()
-            
-            # Q7: Restoration question (look for keywords)
-            if "restore" in question_lower or "recharge" in question_lower or "energy" in question_lower:
+            q = item.question.lower()
+            if "goal" in q or "what is your goal" in q:
                 if item.answers:
-                    # Calculate average weight from all selected answers
-                    weights = [self.q7_weights.get(answer, 0) for answer in item.answers if answer in self.q7_weights]
-                    if weights:
-                        q7_weight = sum(weights) / len(weights)
-            
-            # Q8: Emotional Pattern question (look for keywords)
-            if "feel" in question_lower or "emotional" in question_lower or "emotion" in question_lower:
+                    goals.extend(item.answers)
+                break
+
+        if not goals:
+            return "Neutral"
+
+        # ---- Extract Q2 identity / navigation statement -----------------------
+        q2_answer = ""
+        for item in quizdata:
+            q = item.question.lower()
+            if "quote" in q or "feels most you" in q or "navigation" in q:
                 if item.answers:
-                    # Calculate average weight from all selected answers
-                    weights = [self.q8_weights.get(answer, 0) for answer in item.answers if answer in self.q8_weights]
-                    if weights:
-                        q8_weight = sum(weights) / len(weights)
-        
-        # Calculate intensity from average of Q7 and Q8
-        if q7_weight is not None and q8_weight is not None:
-            intensity = (q7_weight + q8_weight) / 2
-        elif q7_weight is not None:
-            intensity = q7_weight
-        elif q8_weight is not None:
-            intensity = q8_weight
-        else:
-            # Default to Mid if no matching questions found
-            return "Mid"
-        
-        # Determine tier
-        if intensity <= 35:
-            return "Low"
-        elif 40 <= intensity <= 60:
-            return "Mid"
-        elif intensity >= 65:
-            return "High"
-        else:
-            return "Mid"
+                    q2_answer = item.answers[0]
+                break
+
+        # ---- Extract Q8 emotional state ----------------------------------------
+        q8_state = ""
+        for item in quizdata:
+            q = item.question.lower()
+            if ("emotion" in q or "emotional" in q or "feel" in q)\
+                    and "obstacle" not in q and "struggle" not in q:
+                if item.answers:
+                    q8_state = item.answers[0]
+                break
+
+        # ---- Extract Q10 obstacle ----------------------------------------------
+        q10_obstacle = ""
+        for item in quizdata:
+            q = item.question.lower()
+            if "obstacle" in q or "struggle" in q or "biggest" in q:
+                if item.answers:
+                    q10_obstacle = item.answers[0]
+                break
+
+        direction = resolve_direction_for_goals(
+            goals=goals,
+            q2_answer=q2_answer,
+            q8_state=q8_state,
+            q10_obstacle=q10_obstacle,
+        )
+
+        print(f"[DEBUG] Direction matrix result: {direction} "
+              f"(goals={goals}, q2={q2_answer!r}, q8={q8_state!r}, q10={q10_obstacle!r})")
+
+        return direction  # "Calming" | "Neutral" | "Energizing"
 
     def _create_affirmation_prompt(self, request: affirmation_request) -> str:
         """Build the prompt for generating affirmations, dynamically based on affirmation_type."""
@@ -466,151 +485,95 @@ IMPORTANT:
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
 
-    def _create_scent_prompt(self, request: affirmation_request, intensity_tier: str) -> str:
-        """Build the prompt for scent selection (separate LLM call)."""
-        
-        system_prompt = """You are an expert scent curator who selects personalized fragrances based on user preferences and personality alignments.
+    def _create_scent_prompt(self, request: affirmation_request, direction: str) -> str:
+        """
+        Build the prompt for scent selection (separate LLM call).
 
-Your task is to identify the base scent from the user's goal preferences using the correct emotional direction, and add ONE secondary scent modifier based on intensity tier.
+        The direction (Calming / Neutral / Energizing) has already been
+        resolved deterministically from the direction matrix.  We map it to the
+        correct ScentDirections key here in Python, pre-resolve base_scent,
+        and only ask the AI to select ONE complementary tertiary modifier.
+        """
+        from app.utils.direction_matrix import DIRECTION_TO_SCENT_KEY
+
+        # Map direction → ScentDirections key
+        scent_key = DIRECTION_TO_SCENT_KEY.get(direction, "Neutral")
+
+        # ----------------------------------------------------------------
+        # Pre-resolve base_scent entirely in Python — no AI guesswork.
+        # ----------------------------------------------------------------
+        base_scent: list[str] = []
+        for scent_item in request.base_scent_info:
+            directions_obj = scent_item.directions
+            if scent_key == "Calming/Grounding":
+                oils = directions_obj.Calming_Grounding
+            elif scent_key == "Elevating/Energizing":
+                oils = directions_obj.Elevating_Energizing
+            else:
+                oils = directions_obj.Neutral
+            base_scent.extend(oils)
+
+        # De-duplicate while preserving order
+        seen: set[str] = set()
+        unique_base: list[str] = []
+        for oil in base_scent:
+            if oil and oil.lower() not in seen:
+                seen.add(oil.lower())
+                unique_base.append(oil)
+
+        system_prompt = f"""You are an expert scent curator for Sui Amor, a personal growth platform.
+
+The user's base essential oil blend has already been selected based on their goal and emotional direction.
+Your ONLY task is to recommend ONE optional tertiary (modifier) scent that complements this blend.
+
+Direction: {direction} (scent profile: {scent_key})
+Base blend (already selected): {unique_base}
 
 You MUST return valid JSON matching this exact structure:
-{
-  "base_scent": ["Sweet Orange", "Lemon", "Jasmine"],
-  "tertiary_scent": ["Rose", "Vanilla"]
-}
+{{
+  "base_scent": {json.dumps(unique_base)},
+  "tertiary_scent": ["one modifier scent name"]
+}}
 
-CRITICAL STEP-BY-STEP PROCESS:
+RULES FOR TERTIARY SCENT:
+- Choose exactly ONE modifier scent that complements the direction and base blend
+- Direction "{direction}" guidance:
+  * Calming    → choose a grounding/soothing modifier (e.g. Vetiver, Myrrh, Cedarwood, Sandalwood)
+  * Neutral    → choose a balancing modifier (e.g. Rose, Geranium, Clary Sage, Palmarosa)
+  * Energizing → choose an uplifting/stimulating modifier (e.g. Peppermint, Lemon, Ginger, Bergamot)
+- Do NOT repeat any scent already in base_scent
+- Do NOT replace or modify base_scent — return it exactly as provided
+- Return ONLY the modifier name(s) in tertiary_scent, not goal names
 
-1. FIND USER'S GOAL(S):
-   - Look at quiz_data for the goal-related question (usually "What Is Your Goal?")
-   - Extract ALL goal answers the user selected
-   - Example: User selected ["Joy & Happiness", "Self-Worth & Acceptance"]
+IMPORTANT: The base_scent in your response MUST be exactly: {json.dumps(unique_base)}
+Do not change it."""
 
-2. MAP INTENSITY TIER TO DIRECTION:
-   Each goal in base_scent_info now has THREE directional scent lists instead of one.
-   Use intensity_tier to pick the correct direction for EVERY goal:
-
-   intensity_tier = "Low"  → use the "Calming/Grounding" scent list for each goal
-   intensity_tier = "Mid"  → use the "Neutral" scent list for each goal
-   intensity_tier = "High" → use the "Elevating/Energizing" scent list for each goal
-
-3. MATCH GOALS TO SCENTS:
-   - For EACH goal the user selected, find it in base_scent_info
-   - Pick the scent list for the direction determined in step 2
-   - Combine all picked lists into one flat list for base_scent
-   - Example (intensity_tier = "High"):
-     * "Joy & Happiness" → Elevating/Energizing: ["Lime", "Bergamot", "Ginger"]
-     * "Self-Worth & Acceptance" → Elevating/Energizing: ["Cardamom", "Clary Sage"]
-     * Combined base_scent: ["Lime", "Bergamot", "Ginger", "Cardamom", "Clary Sage"]
-
-4. IMPORTANT - RETURN THE SCENT NAMES, NOT GOAL NAMES:
-   ❌ WRONG: {"base_scent": ["Joy & Happiness", "Self-Worth & Acceptance"]}
-   ✅ CORRECT: {"base_scent": ["Lime", "Bergamot", "Ginger", "Cardamom", "Clary Sage"]}
-
-5. SELECT SECONDARY SCENT (tertiary_scent field):
-   CRITICAL RULES:
-   - You are provided with intensity_tier (Low, Mid, or High) calculated from Q7 & Q8 weights
-   - You are provided with goal_modifiers mapping each goal to Low/High modifier scents
-   
-   IF intensity_tier is "Low":
-     - Add ONLY ONE modifier from the Low column for the user's goal(s)
-     - Example: If user's goal is "Focus" and tier is Low → add ["Frankincense"]
-   
-   IF intensity_tier is "Mid":
-     - DO NOT add any modifier
-     - Return empty list [] or select one complementary scent based on personality
-   
-   IF intensity_tier is "High":
-     - Add ONLY ONE modifier from the High column for the user's goal(s)
-     - Example: If user's goal is "Focus" and tier is High → add ["Peppermint"]
-   
-   IMPORTANT:
-   - Do NOT replace base oils
-   - Add ONLY one modifier scent
-   - DO NOT repeat any scents from base_scent
-   - If user has multiple goals, choose the modifier for their primary goal
-
-REAL EXAMPLE WITH ACTUAL DATA STRUCTURE:
-
-base_scent_info provided:
-[
-  {
-    "goal": "Joy & Happiness",
-    "directions": {
-      "Neutral": ["Sweet Orange", "Lemon", "Jasmine"],
-      "Elevating/Energizing": ["Lime", "Bergamot", "Ginger"],
-      "Calming/Grounding": ["Vanilla", "Sandalwood", "Ylang Ylang"]
-    }
-  },
-  {
-    "goal": "Self-Worth & Acceptance",
-    "directions": {
-      "Neutral": ["Patchouli", "Neroli", "Cedarwood"],
-      "Elevating/Energizing": ["Cardamom", "Clary Sage", "Geranium"],
-      "Calming/Grounding": ["Myrrh", "Vetiver", "Frankincense"]
-    }
-  }
-]
-
-User's quiz answer: "What Is Your Goal?" → ["Joy & Happiness", "Self-Worth & Acceptance"]
-intensity_tier: "High"
-
-Correct response:
-{
-  "base_scent": ["Lime", "Bergamot", "Ginger", "Cardamom", "Clary Sage", "Geranium"],
-  "tertiary_scent": ["Clary Sage"]
-}
-
-CRITICAL REMINDERS:
-- base_scent MUST contain the actual scent names from the direction matching intensity_tier
-- NEVER return goal names in base_scent
-- If user has multiple goals, combine all their direction-matched scent values
-- Secondary scent (tertiary_scent) MUST follow the intensity_tier and goal_modifiers rules
-- Add ONLY one modifier, do not replace base oils"""
-
-        # Convert quiz data to readable format
+        # Build quiz summary for context
         quiz_summary = []
         for item in request.quizdata:
             question_data = {"question": item.question}
             if item.answers:
                 question_data["answers"] = item.answers
             if item.sub_questions:
-                sub_q_data = []
-                for sq in item.sub_questions:
-                    sub_q_data.append({
-                        "sub_question": sq.sub_question,
-                        "sub_answers": sq.sub_answers
-                    })
+                sub_q_data = [
+                    {"sub_question": sq.sub_question, "sub_answers": sq.sub_answers}
+                    for sq in item.sub_questions
+                ]
                 question_data["sub_questions"] = sub_q_data
             quiz_summary.append(question_data)
 
-        # Serialise base_scent_info with the new three-direction structure.
-        # The AI receives {goal, directions: {Neutral, Elevating/Energizing, Calming/Grounding}}
-        # and picks the direction matching intensity_tier.
-        scent_mapping = []
-        for scent_item in request.base_scent_info:
-            scent_mapping.append({
-                "goal": scent_item.goal,
-                "directions": {
-                    "Neutral": scent_item.directions.Neutral,
-                    "Elevating/Energizing": scent_item.directions.Elevating_Energizing,
-                    "Calming/Grounding": scent_item.directions.Calming_Grounding,
-                }
-            })
-
         user_payload = {
             "quiz_data": quiz_summary,
-            "synergies": request.synergies or {},
-            "harmonies": request.harmonies or {},
-            "resonances": request.resonances or {},
-            "polarities": request.polarities or {},
-            "base_scent_info": scent_mapping,
-            "intensity_tier": intensity_tier,
+            "direction": direction,
+            "scent_direction_key": scent_key,
+            "base_scent_already_resolved": unique_base,
             "goal_modifiers": self.goal_modifiers,
-            "instructions": "CRITICAL: 1) Find user's goal(s) from quiz_data, match each goal to base_scent_info, extract the VALUE field (the scent names, NOT the goal names), combine all values for base_scent. 2) Use intensity_tier and goal_modifiers to select ONE secondary scent modifier. If Low tier, add Low modifier for their goal. If High tier, add High modifier. If Mid tier, add no modifier or one complementary scent."
+            "instructions": (
+                f"The base_scent is already resolved as {unique_base}. "
+                f"Choose ONE tertiary modifier scent that fits the '{direction}' direction "
+                f"and does not duplicate any oil in base_scent."
+            ),
         }
-
-        return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
 
     def _get_openai_response(self, prompt: str, model: str = None) -> Dict[str, Any] | None:
         """Call OpenAI API to generate affirmations or quiz summary."""

@@ -36,3 +36,6 @@ temp_images/
 
 # Ignore docker-compose override
 *docker-compose.override.yml
+
+# Runtime-uploaded data files (populated via admin API, not source code)
+app/services/alignment/data/direction_matrix.json
