@@ -274,7 +274,7 @@ IMPORTANT: Preference layers must be applied proportionally to their influence l
         # Add active preference fields to payload for AI reference
         if request.religious_or_spritual_preference:
             user_payload["religious_or_spiritual_preference"] = request.religious_or_spritual_preference
-            user_payload["religious_influence_score"] = request.religious_preference_priorit_score
+            user_payload["religious_influence_score"] = request.religious_preference_priority_score
         if request.astrology_preference:
             user_payload["astrology_preference"] = request.astrology_preference
         if request.holiday_preference:
@@ -368,7 +368,7 @@ IMPORTANT: Preference layers must be applied proportionally to their influence l
 
         # Resolve influence score (default to 3 if not provided or unparseable)
         try:
-            score = int(request.religious_preference_priorit_score)
+            score = int(request.religious_preference_priority_score)
             score = max(1, min(5, score))  # clamp 1–5
         except (TypeError, ValueError):
             score = 3
