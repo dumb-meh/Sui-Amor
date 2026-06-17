@@ -141,20 +141,32 @@ class Affirmation:
             return "Neutral"
 
         # ---- Extract Q2 identity / navigation statement -----------------------
+        # Q2 asks something like "Which quote feels most you?" or
+        # "Which statement best describes how you navigate life?"
         q2_answer = ""
         for item in quizdata:
             q = item.question.lower()
-            if "quote" in q or "feels most you" in q or "navigation" in q:
+            if "quote" in q or "feels most you" in q or "navigation" in q \
+                    or ("statement" in q and "describe" in q):
                 if item.answers:
                     q2_answer = item.answers[0]
                 break
 
         # ---- Extract Q8 emotional state ----------------------------------------
+        # Q8 asks something like "What Emotion Best Describes Your General State
+        # of Being?" — deliberately avoid colour questions that contain "feel".
         q8_state = ""
         for item in quizdata:
             q = item.question.lower()
-            if ("emotion" in q or "emotional" in q or "feel" in q)\
-                    and "obstacle" not in q and "struggle" not in q:
+            # Must contain emotional/emotion AND be about a "state" or "being",
+            # NOT a colour/visual question.
+            is_emotional_state = (
+                ("emotion" in q or "emotional" in q)
+                and ("state" in q or "being" in q or "describes" in q or "pattern" in q)
+            )
+            # Exclude colour / sensory questions even if they happen to use "feel"
+            is_color_question = "color" in q or "colour" in q or "drawn to" in q
+            if is_emotional_state and not is_color_question:
                 if item.answers:
                     q8_state = item.answers[0]
                 break
@@ -574,6 +586,8 @@ Do not change it."""
                 f"and does not duplicate any oil in base_scent."
             ),
         }
+
+        return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
 
     def _get_openai_response(self, prompt: str, model: str = None) -> Dict[str, Any] | None:
         """Call OpenAI API to generate affirmations or quiz summary."""
