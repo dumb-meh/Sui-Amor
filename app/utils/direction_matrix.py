@@ -1,28 +1,31 @@
 """
 Direction Matrix utility — in-memory indexed lookup.
 
-Performance design:
-─────────────────────────────────────────────────────────────────────────────
-The direction matrix has ~5,000 rows. We build a dict index once at first use
-and keep it in module-level memory. Subsequent lookups are pure dict hash
-lookups: O(1), sub-millisecond.
+Logic:
+──────
+The direction matrix encodes every combination of quiz answers as a Rule_ID
+like `DM_Q9_O1_Q2_O1_Q8_O1_Q10_O5`, where each segment names the question
+and the option the user picked.
 
-To handle multiple uvicorn workers correctly after an upload, we check the
-JSON file's modification time on every lookup. If the file has changed, we
-reload and re-index — this mtime check costs ~1 microsecond (a single stat()
-syscall) so it adds no meaningful latency.
+For each combination, three scores are pre-computed (Calming, Energizing,
+Neutral). The highest score determines `Direction_Result`.  That field is
+already the authoritative answer — we never re-compute it; we just look it up.
 
-File I/O only happens:
-  1. On first request after server start
-  2. On first request after an admin upload (detected via mtime)
+Lookup strategy:
+1. Build a primary index keyed by (Q9_Goal_ID, Q2_Answer_ID, Q8_State_ID,
+   Q10_Obstacle_ID) → Direction_Result.
+2. Build reverse text→ID maps from the matrix so quiz answer text can be
+   translated to the canonical option IDs (Q9_O1, Q2_O3, etc.).
+3. To resolve a user's direction: translate each answer text to its ID, look
+   up the combination — O(1), no fuzzy matching.
 
-Redis is NOT used — it would add a network round-trip (~1–5 ms) for data
-that is effectively static between admin uploads.
-─────────────────────────────────────────────────────────────────────────────
+Performance:
+───────────
+File is loaded once, indexed in memory.  Subsequent calls cost a single
+stat() syscall (~1 µs) to detect if the file changed, then a dict lookup.
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -32,7 +35,7 @@ from typing import Optional
 _DATA_DIR = Path(__file__).parent.parent / "services" / "alignment" / "data"
 MATRIX_FILE = _DATA_DIR / "direction_matrix.json"
 
-# Direction → ScentDirections field name mapping
+# Direction → ScentDirections field name (used in affirmation schema)
 DIRECTION_TO_SCENT_KEY: dict[str, str] = {
     "Calming":    "Calming/Grounding",
     "Neutral":    "Neutral",
@@ -40,67 +43,90 @@ DIRECTION_TO_SCENT_KEY: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Module-level in-memory index (shared across all calls within one process)
+# Module-level indexes (populated once, refreshed on file change)
 # ---------------------------------------------------------------------------
-_index: dict[tuple[str, str, str, str], str] = {}
-_last_mtime: float = 0.0   # tracks when we last loaded the file
+
+# Primary lookup: (Q9_Goal_ID, Q2_Answer_ID, Q8_State_ID, Q10_Obstacle_ID) → Direction_Result
+_id_index: dict[tuple[str, str, str, str], str] = {}
+
+# Reverse text→ID maps per question type (lower-cased text → canonical ID)
+# e.g. _text_to_id["q9"]["discipline and focus"] = "Q9_O1"
+_text_to_id: dict[str, dict[str, str]] = {
+    "q9":  {},   # Goal_Target → Q9_Goal_ID
+    "q2":  {},   # Q2_Answer   → Q2_Answer_ID
+    "q8":  {},   # Q8_State    → Q8_State_ID
+    "q10": {},   # Q10_Obstacle → Q10_Obstacle_ID
+}
+
+_last_mtime: float = 0.0
 
 
 def _norm(s: str) -> str:
-    """Normalise a string for case-insensitive matching."""
     return (s or "").strip().lower()
 
 
 def _load_and_index() -> None:
-    """
-    Read direction_matrix.json from disk, build the lookup dict, and cache
-    both in module-level variables.  Called automatically when needed.
-    """
-    global _index, _last_mtime
+    """Read the JSON file, build the ID index and text→ID maps."""
+    global _id_index, _text_to_id, _last_mtime
 
     if not MATRIX_FILE.exists():
-        _index = {}
+        _id_index = {}
+        _text_to_id = {"q9": {}, "q2": {}, "q8": {}, "q10": {}}
         _last_mtime = 0.0
         return
 
     with open(MATRIX_FILE, "r", encoding="utf-8") as f:
         rows: list[dict] = json.load(f)
 
-    new_index: dict[tuple[str, str, str, str], str] = {}
-    for row in rows:
-        key = (
-            _norm(row.get("Goal_Target", "")),
-            _norm(row.get("Q2_Answer", "")),
-            _norm(row.get("Q8_State", "")),
-            _norm(row.get("Q10_Obstacle", "")),
-        )
-        direction = row.get("Direction_Result", "")
-        if key[0] and direction:          # skip rows missing goal or direction
-            new_index[key] = direction
+    new_id_index: dict[tuple[str, str, str, str], str] = {}
+    new_text: dict[str, dict[str, str]] = {"q9": {}, "q2": {}, "q8": {}, "q10": {}}
 
-    _index = new_index
+    for row in rows:
+        q9_id  = row.get("Q9_Goal_ID", "")
+        q2_id  = row.get("Q2_Answer_ID", "")
+        q8_id  = row.get("Q8_State_ID", "")
+        q10_id = row.get("Q10_Obstacle_ID", "")
+        result = row.get("Direction_Result", "")
+
+        if not (q9_id and q2_id and q8_id and q10_id and result):
+            continue  # skip incomplete rows
+
+        # Primary index (ID-based)
+        new_id_index[(q9_id, q2_id, q8_id, q10_id)] = result
+
+        # Reverse text→ID maps (built from matrix — guaranteed to match)
+        goal_text = _norm(row.get("Goal_Target", ""))
+        q2_text   = _norm(row.get("Q2_Answer", ""))
+        q8_text   = _norm(row.get("Q8_State", ""))
+        q10_text  = _norm(row.get("Q10_Obstacle", ""))
+
+        if goal_text:
+            new_text["q9"][goal_text]  = q9_id
+        if q2_text:
+            new_text["q2"][q2_text]    = q2_id
+        if q8_text:
+            new_text["q8"][q8_text]    = q8_id
+        if q10_text:
+            new_text["q10"][q10_text]  = q10_id
+
+    _id_index   = new_id_index
+    _text_to_id = new_text
     _last_mtime = MATRIX_FILE.stat().st_mtime
 
     print(
-        f"[DirectionMatrix] Loaded and indexed {len(_index):,} rules "
-        f"from {MATRIX_FILE.name}"
+        f"[DirectionMatrix] Loaded and indexed {len(_id_index):,} rules "
+        f"from {MATRIX_FILE.name} "
+        f"({len(new_text['q9'])} goals, {len(new_text['q2'])} Q2 options, "
+        f"{len(new_text['q8'])} Q8 states, {len(new_text['q10'])} Q10 obstacles)"
     )
 
 
 def _ensure_fresh() -> None:
-    """
-    Cheap guard: stat() the file to see if it changed.
-    Only reloads if the file is newer than what's in memory.
-    Cost: ~1 µs (single OS stat syscall) — safe to call on every request.
-    """
-    global _last_mtime
-
+    """stat() the file (~1 µs). Reload only if mtime changed."""
     if not MATRIX_FILE.exists():
-        if _index:
-            _index.clear()
-            _last_mtime = 0.0
+        if _id_index:
+            _id_index.clear()
         return
-
     current_mtime = MATRIX_FILE.stat().st_mtime
     if current_mtime != _last_mtime:
         _load_and_index()
@@ -111,34 +137,51 @@ def _ensure_fresh() -> None:
 # ---------------------------------------------------------------------------
 
 def save_matrix(rows: list[dict]) -> None:
-    """
-    Persist the direction matrix to disk and immediately re-index it in
-    memory.  Called by the upload endpoint.
-    """
-    global _index, _last_mtime
-
+    """Persist the matrix to disk and re-index immediately."""
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(MATRIX_FILE, "w", encoding="utf-8") as f:
-        json.dump(rows, f, ensure_ascii=False)  # compact (no indent) for speed
-
-    # Re-index immediately so this worker doesn't need to reload on next call
+        json.dump(rows, f, ensure_ascii=False)  # compact (no indent) — faster
     _load_and_index()
 
 
 def lookup_direction(
-    goal: str,
-    q2_answer: str,
-    q8_state: str,
-    q10_obstacle: str,
+    goal_text: str,
+    q2_text: str,
+    q8_text: str,
+    q10_text: str,
 ) -> Optional[str]:
     """
-    O(1) lookup of Direction_Result for a given quiz-answer combination.
+    Resolve Direction_Result for a given combination of quiz answer texts.
 
-    Returns one of: 'Calming', 'Neutral', 'Energizing', or None if not found.
+    Steps:
+    1. Translate each answer text to its canonical option ID using the
+       reverse maps built from the matrix.
+    2. Look up (Q9_Goal_ID, Q2_Answer_ID, Q8_State_ID, Q10_Obstacle_ID)
+       in the primary index.
+    3. Return the pre-computed Direction_Result ('Calming'/'Neutral'/'Energizing').
+
+    Returns None if the combination is not found (matrix not uploaded, or
+    answers that don't exist in the matrix).
     """
-    _ensure_fresh()          # ~1 µs mtime check; reloads only if file changed
-    key = (_norm(goal), _norm(q2_answer), _norm(q8_state), _norm(q10_obstacle))
-    return _index.get(key)
+    _ensure_fresh()
+
+    q9_id  = _text_to_id["q9"].get(_norm(goal_text))
+    q2_id  = _text_to_id["q2"].get(_norm(q2_text))
+    q8_id  = _text_to_id["q8"].get(_norm(q8_text))
+    q10_id = _text_to_id["q10"].get(_norm(q10_text))
+
+    if not (q9_id and q2_id and q8_id and q10_id):
+        # One or more answers didn't map to a known ID
+        missing = {
+            k: v for k, v in
+            {"goal": q9_id, "q2": q2_id, "q8": q8_id, "q10": q10_id}.items()
+            if not v
+        }
+        print(f"[DirectionMatrix] WARNING — no ID found for: {missing} "
+              f"(goal={goal_text!r}, q2={q2_text!r}, q8={q8_text!r}, q10={q10_text!r})")
+        return None
+
+    return _id_index.get((q9_id, q2_id, q8_id, q10_id))
 
 
 def resolve_direction_for_goals(
@@ -148,15 +191,12 @@ def resolve_direction_for_goals(
     q10_obstacle: str,
 ) -> str:
     """
-    Resolve a single Direction for a user who may have selected multiple goals.
+    Resolve direction for a user who may have selected multiple goals.
 
-    Strategy (mirrors the Comprehensive Document rule R10 tie-break):
-    1. Try each goal with the exact Q2/Q8/Q10 combination.
-    2. If multiple goals return different directions, take a majority vote.
-       Ties are broken: Calming > Neutral > Energizing (conservative default).
-    3. Fall back to 'Neutral' if nothing matches at all.
-
-    Returns one of: 'Calming', 'Neutral', 'Energizing'
+    For each goal, look up the Direction_Result from the pre-computed matrix.
+    If multiple goals return different directions, take a majority vote.
+    Tie-break: Calming > Neutral > Energizing (conservative default).
+    Falls back to 'Neutral' if nothing matches (matrix not uploaded yet).
     """
     results: list[str] = []
 
@@ -166,29 +206,34 @@ def resolve_direction_for_goals(
             results.append(direction)
 
     if not results:
-        return "Neutral"  # safe fallback when matrix not yet uploaded
+        return "Neutral"
 
-    # Majority vote
     counts: dict[str, int] = {"Calming": 0, "Neutral": 0, "Energizing": 0}
     for r in results:
         if r in counts:
             counts[r] += 1
 
-    # Tie-break order: Calming > Neutral > Energizing (most conservative first)
+    # Tie-break: Calming first (most conservative)
     tie_order = {"Calming": 0, "Neutral": 1, "Energizing": 2}
     return min(counts, key=lambda d: (-counts[d], tie_order[d]))
 
 
 def get_stats() -> dict:
-    """Return stats about the currently loaded index (for the status endpoint)."""
+    """Return stats about the currently loaded index."""
     _ensure_fresh()
     from collections import Counter
-    direction_counts = Counter(_index.values())
-    goals = sorted({key[0] for key in _index})
+    direction_counts = Counter(_id_index.values())
+    goals = sorted({_norm(k) for k in _text_to_id["q9"].keys()})
     return {
-        "indexed_rules": len(_index),
+        "indexed_rules": len(_id_index),
         "direction_distribution": dict(direction_counts),
         "unique_goals": goals,
         "file_mtime": _last_mtime,
         "file_exists": MATRIX_FILE.exists(),
+        "text_id_map_sizes": {
+            "q9_goals": len(_text_to_id["q9"]),
+            "q2_answers": len(_text_to_id["q2"]),
+            "q8_states": len(_text_to_id["q8"]),
+            "q10_obstacles": len(_text_to_id["q10"]),
+        },
     }

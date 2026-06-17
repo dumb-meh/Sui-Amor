@@ -117,68 +117,54 @@ class Affirmation:
     
     def _resolve_direction_from_matrix(self, quizdata: list) -> str:
         """
-        Determine the scent direction (Calming / Neutral / Energizing) for a
-        user by looking up their Q9 goal + Q2 identity + Q8 emotional state +
-        Q10 obstacle combination in the uploaded direction matrix.
+        Resolve the scent direction (Calming / Neutral / Energizing) by:
+        1. Extracting the raw answer texts for Q9 (goal), Q2 (identity),
+           Q8 (emotional state), and Q10 (obstacle) from the quiz data.
+        2. Passing them to direction_matrix.resolve_direction_for_goals which
+           translates each text to its canonical option ID and does an O(1)
+           lookup of the pre-computed Direction_Result.
+
+        Quiz question order (0-indexed, fixed by the product):
+          idx 0  → Q1  Color
+          idx 1  → Q2  Identity / navigation quote
+          idx 2  → Q3  Environment
+          idx 3  → Q4  Expression style
+          idx 4  → Q5  Media / art
+          idx 5  → Q6  Story archetype
+          idx 6  → Q7  Recovery method
+          idx 7  → Q8  Emotional state / pattern
+          idx 8  → Q9  Goal  ← primary anchor
+          idx 9  → Q10 Obstacle
 
         Falls back to "Neutral" if the matrix has not been uploaded yet or
-        the user's specific combination is not found.
-
-        Returns one of: "Calming", "Neutral", "Energizing"
+        the combination is not found.
         """
         from app.utils.direction_matrix import resolve_direction_for_goals
 
-        # ---- Extract Q9 goals -------------------------------------------------
-        goals: list[str] = []
-        for item in quizdata:
-            q = item.question.lower()
-            if "goal" in q or "what is your goal" in q:
-                if item.answers:
-                    goals.extend(item.answers)
-                break
+        def _get_answers(idx: int) -> list[str]:
+            """Safely get answers list from a quiz question by index."""
+            try:
+                item = quizdata[idx]
+                return item.answers if item.answers else []
+            except (IndexError, AttributeError):
+                return []
 
+        # Q9 (index 8) — goal; can be multi-select
+        goals = _get_answers(8)
         if not goals:
             return "Neutral"
 
-        # ---- Extract Q2 identity / navigation statement -----------------------
-        # Q2 asks something like "Which quote feels most you?" or
-        # "Which statement best describes how you navigate life?"
-        q2_answer = ""
-        for item in quizdata:
-            q = item.question.lower()
-            if "quote" in q or "feels most you" in q or "navigation" in q \
-                    or ("statement" in q and "describe" in q):
-                if item.answers:
-                    q2_answer = item.answers[0]
-                break
+        # Q2 (index 1) — identity / navigation statement (single answer)
+        q2_answers = _get_answers(1)
+        q2_answer = q2_answers[0] if q2_answers else ""
 
-        # ---- Extract Q8 emotional state ----------------------------------------
-        # Q8 asks something like "What Emotion Best Describes Your General State
-        # of Being?" — deliberately avoid colour questions that contain "feel".
-        q8_state = ""
-        for item in quizdata:
-            q = item.question.lower()
-            # Must contain emotional/emotion AND be about a "state" or "being",
-            # NOT a colour/visual question.
-            is_emotional_state = (
-                ("emotion" in q or "emotional" in q)
-                and ("state" in q or "being" in q or "describes" in q or "pattern" in q)
-            )
-            # Exclude colour / sensory questions even if they happen to use "feel"
-            is_color_question = "color" in q or "colour" in q or "drawn to" in q
-            if is_emotional_state and not is_color_question:
-                if item.answers:
-                    q8_state = item.answers[0]
-                break
+        # Q8 (index 7) — emotional state / pattern (single answer)
+        q8_answers = _get_answers(7)
+        q8_state = q8_answers[0] if q8_answers else ""
 
-        # ---- Extract Q10 obstacle ----------------------------------------------
-        q10_obstacle = ""
-        for item in quizdata:
-            q = item.question.lower()
-            if "obstacle" in q or "struggle" in q or "biggest" in q:
-                if item.answers:
-                    q10_obstacle = item.answers[0]
-                break
+        # Q10 (index 9) — obstacle (single answer)
+        q10_answers = _get_answers(9)
+        q10_obstacle = q10_answers[0] if q10_answers else ""
 
         direction = resolve_direction_for_goals(
             goals=goals,
