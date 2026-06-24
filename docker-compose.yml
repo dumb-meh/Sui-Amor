@@ -7,7 +7,8 @@ services:
     env_file:
       - .env
     volumes:
-      - .:/app
+      - .:/app                          # bind-mount project files
+      - chroma_data:/app/.chroma        # named volume — not overwritten by bind mount above
     depends_on:
       - redis
     restart: unless-stopped
@@ -32,3 +33,6 @@ services:
 networks:
   suiamor_network:
     driver: bridge
+
+volumes:
+  chroma_data:      # Docker manages this — survives restarts, correct permissions
