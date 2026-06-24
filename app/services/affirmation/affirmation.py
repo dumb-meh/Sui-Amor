@@ -56,15 +56,14 @@ class Affirmation:
         # Resolve scent direction from the direction matrix (Q9+Q2+Q8+Q10 lookup)
         direction = self._resolve_direction_from_matrix(request.quizdata)
         
-        # Make three LLM calls separately
+        # Make two LLM calls (affirmation + summary)
         affirmation_prompt = self._create_affirmation_prompt(request)
         summary_prompt = self._create_quiz_summary_prompt(request)
-        scent_prompt = self._create_scent_prompt(request, direction)
+        # scent_prompt = self._create_scent_prompt(request, direction)  # kept for future use
         
-        # Call all three (could be parallelized in future if needed)
         affirmation_data = self._get_openai_response(affirmation_prompt, model=self.reasoning_model)
         summary_data = self._get_openai_response(summary_prompt, model="gpt-4o-mini")
-        scent_data = self._get_openai_response(scent_prompt, model="gpt-4o-mini")
+        # scent_data = self._get_openai_response(scent_prompt, model="gpt-4o-mini")
         
         if not affirmation_data:
             raise ValueError("Failed to generate affirmations")
@@ -72,14 +71,13 @@ class Affirmation:
         if not summary_data:
             raise ValueError("Failed to generate quiz summary")
         
-        if not scent_data:
-            raise ValueError("Failed to generate scent recommendations")
-        
         affirmations = affirmation_data.get("affirmation", [])
         theme = affirmation_data.get("affirmation_theme", "")
         summary = summary_data.get("short_summary_of_quiz", "")
-        base_scent = scent_data.get("base_scent", [])
-        tertiary_scent = scent_data.get("tertiary_scent", [])
+
+        # base_scent resolved purely in Python from direction matrix + base_scent_info
+        base_scent = self._resolve_base_scent(request, direction)
+        tertiary_scent: list = []  # not currently in use; kept in schema for future use
         
         if len(affirmations) != 12:
             raise ValueError(f"Expected 12 affirmations, got {len(affirmations)}")
@@ -91,6 +89,7 @@ class Affirmation:
             base_scent=base_scent,
             tertiary_scent=tertiary_scent
         )
+
 
         # Persist goal + religious preference to Redis (upsert — overwrites existing)
         try:
@@ -483,7 +482,40 @@ IMPORTANT:
 
         return json.dumps({"system": system_prompt, "payload": user_payload}, ensure_ascii=False)
 
+    def _resolve_base_scent(self, request: affirmation_request, direction: str) -> list[str]:
+        """
+        Resolve base_scent entirely in Python — no AI involved.
+
+        Maps direction → ScentDirections key → reads the correct oil list from
+        each goal's base_scent_info entry → de-duplicates while preserving order.
+        """
+        from app.utils.direction_matrix import DIRECTION_TO_SCENT_KEY
+
+        scent_key = DIRECTION_TO_SCENT_KEY.get(direction, "Neutral")
+
+        base_scent: list[str] = []
+        for scent_item in request.base_scent_info:
+            directions_obj = scent_item.directions
+            if scent_key == "Calming/Grounding":
+                oils = directions_obj.Calming_Grounding
+            elif scent_key == "Elevating/Energizing":
+                oils = directions_obj.Elevating_Energizing
+            else:
+                oils = directions_obj.Neutral
+            base_scent.extend(oils)
+
+        # De-duplicate while preserving order
+        seen: set[str] = set()
+        unique_base: list[str] = []
+        for oil in base_scent:
+            if oil and oil.lower() not in seen:
+                seen.add(oil.lower())
+                unique_base.append(oil)
+
+        return unique_base
+
     def _create_scent_prompt(self, request: affirmation_request, direction: str) -> str:
+
         """
         Build the prompt for scent selection (separate LLM call).
 
