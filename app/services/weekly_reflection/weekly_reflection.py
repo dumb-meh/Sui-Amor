@@ -35,10 +35,7 @@ class Reflection:
         response = self._generate(goal, past_reflections)
         if not response:
             response = ReflectionResponse(
-                suggestion=(
-                    "Take a moment to breathe and appreciate your journey. "
-                    "Reflect on your goals and take one gentle step forward today."
-                )
+                suggestion="What is one small step you can take this week toward your goal?"
             )
 
         # 4. Persist: save as current (with timestamp) + append to history
@@ -71,32 +68,38 @@ class Reflection:
 
     def _create_prompt(self, goal: str, past_reflections: list) -> str:
         system_prompt = (
-            "You are a compassionate, thoughtful self-reflection guide and coach for Sui Amor.\n\n"
-            "Your task is to analyze the user's focus goal and their previous weekly reflections (if any), "
-            "and craft a deeply inspiring, highly personalized, and supportive weekly reflection and growth suggestion.\n\n"
-            "The reflection should:\n"
-            "- Acknowledge their focus/goal.\n"
-            "- Connect insights from their previous reflections (if provided) to show their growth trajectory.\n"
-            "- Offer gentle, actionable, and soulful advice for the week ahead.\n"
-            "- Be short and concise, ideally 2-4 sentences total.\n"
-            "- Be written in a warm, poetic, and encouraging tone.\n"
-            "- Flow naturally, using paragraphs rather than bullet points, to create a premium, cohesive reading experience.\n"
-            "- Differ meaningfully from any previous reflections provided.\n\n"
-            "Example short reflection:\n"
-            "What’s one belief or habit I’m ready to release so I can move forward with more clarity and confidence?\n\n"
+            "You are a thoughtful self-reflection guide for Sui Amor, a personal growth platform.\n\n"
+            "Your task is to write ONE short, meaningful weekly reflection question for the user.\n\n"
+            "RULES:\n"
+            "- Write exactly ONE question — nothing else.\n"
+            "- The question must be short (one sentence, ideally under 15 words).\n"
+            "- It should invite genuine self-inquiry, not give advice or affirmations.\n"
+            "- It must feel relevant to the user's current goal (if provided).\n"
+            "- It must differ meaningfully from any previous reflection questions provided.\n"
+            "- Write it in second person ('you' / 'your'), present or past tense for the week.\n"
+            "- Do NOT start with 'I' or write it as a statement — it must be a question.\n\n"
+            "Example questions (use these as style reference, do NOT repeat them):\n"
+            "- What are you most grateful for this week?\n"
+            "- What challenged you this week?\n"
+            "- Where did you show up for yourself this week?\n"
+            "- What gave you energy this week?\n"
+            "- What would you like to improve next week?\n"
+            "- What are you proud of this week?\n"
+            "- Where did your actions align with your intentions?\n"
+            "- What lesson are you taking into next week?\n\n"
             "You MUST return valid JSON matching this exact structure:\n"
             "{\n"
-            '  "suggestion": "Your beautiful, personalized weekly reflection and suggestion text here."\n'
+            '  "suggestion": "Your short reflection question here?"\n'
             "}"
         )
 
         user_payload = {
-            "goal": goal or "general well-being",
-            "previous_reflections": past_reflections,
+            "goal": goal or "general personal growth",
+            "previous_reflection_questions": past_reflections,
             "instructions": (
-                "Generate a beautiful weekly reflection and suggestion. Ensure it feels premium, "
-                "tailored to their goal, and flows beautifully. "
-                "It must differ meaningfully from the previous reflections provided."
+                "Generate one short weekly reflection question tailored to the user's goal. "
+                "It must be a genuine question (ending with '?'), under 15 words, "
+                "and must not repeat any of the previous questions provided."
             ),
         }
 
