@@ -123,7 +123,8 @@ class Alignment:
         tier2_results = self._tier2_axis_match(
             user_profile=user_profile,
             user_categories=user_categories,
-            user_answer_ids=user_answer_ids
+            user_answer_ids=user_answer_ids,
+            normalized_answers=normalized_answers
         )
         print(f"[DEBUG] Tier 2 found {len(tier2_results)} candidates")
         if tier2_results:
@@ -140,6 +141,19 @@ class Alignment:
         print(f"[DEBUG] No alignments in CSV match the selected answers. Returning empty results.")
         return []
     
+    def _solo_eligible_categories(self, normalized_answers: List[Dict[str, Any]]) -> set:
+        """
+        Return the set of categories for which exactly ONE answer was selected.
+
+        Rule: A SOLO alignment only unlocks when the user selected exactly one
+        answer within that category.  If they selected two or more answers from
+        the same category (even if those answers happen to synergize or harmonize),
+        no SOLO for that category is returned.
+        """
+        from collections import Counter
+        category_counts = Counter(ans["category"] for ans in normalized_answers)
+        return {cat for cat, count in category_counts.items() if count == 1}
+
     def _tier1_exact_match(
         self, 
         user_answer_ids: set, 
@@ -147,28 +161,47 @@ class Alignment:
     ) -> List[Dict[str, Any]]:
         """
         Tier 1: Find alignments whose components exactly match user's answers.
-        Prioritizes correct order, but falls back to any order if no exact match found.
+
+        Rules applied:
+        - SOLO: only unlocks if the user selected exactly ONE answer in that
+          alignment's category.  Multiple selections in the same category
+          suppress all SOLOs for that category.
+        - SYNERGY / HARMONY: unlock whenever all their components are present,
+          regardless of how many other answers were selected.
+        - RESONANCE / POLARITY: same component-subset rule as SYNERGY/HARMONY;
+          they do NOT suppress or cancel any valid SYNERGY/HARMONY match.
         """
+        solo_categories = self._solo_eligible_categories(normalized_answers)
+
         ordered_matches = []
         unordered_matches = []
-        
+
         # Create ordered sequence of answer IDs
         user_sequence = [ans["answer_id"] for ans in sorted(
             normalized_answers, 
             key=lambda x: x["selection_order"]
         )]
-        
+
         print(f"[DEBUG] Tier 1: Checking {len(self.data_store.alignments)} alignments against user answers")
         print(f"[DEBUG] Tier 1: User answer order: {user_sequence[:5]}...")
-        
+        print(f"[DEBUG] Tier 1: Solo-eligible categories: {solo_categories}")
+
         for alignment_id, alignment in self.data_store.alignments.items():
             components = alignment["components"]
             components_set = set(components)
-            
+            atype = alignment["type"]  # SOLO / SYNERGY / HARMONY / RESONANCE / POLARITY
+
             # Check if all components are present in user's answers
             if not components_set.issubset(user_answer_ids):
                 continue
-            
+
+            # SOLO rule: suppress if more than one answer was selected in this category
+            if atype == "SOLO":
+                alignment_category = alignment["categories"][0] if alignment["categories"] else ""
+                if alignment_category not in solo_categories:
+                    print(f"[DEBUG]   ✗ SOLO suppressed (multi-select in category '{alignment_category}'): {alignment_id}")
+                    continue
+
             # Check if components appear in correct order in user sequence
             if self._is_subsequence(components, user_sequence):
                 ordered_matches.append({
@@ -176,72 +209,92 @@ class Alignment:
                     "distance": 0.0,
                     "match_type": "exact_ordered"
                 })
-                print(f"[DEBUG]   ✓ Ordered match: {alignment_id} (components: {components})")
+                print(f"[DEBUG]   ✓ Ordered match: {alignment_id} (type: {atype}, components: {components})")
             else:
-                # Components exist but wrong order - keep as fallback
                 unordered_matches.append({
                     "alignment": alignment,
                     "distance": 0.0,
                     "match_type": "exact_unordered"
                 })
-                print(f"[DEBUG]   ~ Unordered match (fallback): {alignment_id} (components: {components})")
-        
+                print(f"[DEBUG]   ~ Unordered match (fallback): {alignment_id} (type: {atype}, components: {components})")
+
         # Prefer ordered matches, fallback to unordered if none found
         if ordered_matches:
             print(f"[DEBUG] Tier 1: Found {len(ordered_matches)} ordered matches (using these)")
-            # Keep in discovery order (which follows user selection order).
-            # Balancing by type is done in match() before the final slice.
             return ordered_matches
         elif unordered_matches:
             print(f"[DEBUG] Tier 1: No ordered matches, using {len(unordered_matches)} unordered matches as fallback")
             return unordered_matches
         else:
             return []
+
     
     def _tier2_axis_match(
         self,
         user_profile: Dict[str, float],
         user_categories: set,
-        user_answer_ids: set
+        user_answer_ids: set,
+        normalized_answers: List[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         Tier 2: Find alignments with closest axis distance (deterministic).
         REQUIRES: At least ONE alignment component must be in user's selected answers.
+
+        Rules applied (same as Tier 1):
+        - SOLO: only returned for categories where exactly one answer was selected.
+        - SYNERGY / HARMONY / RESONANCE / POLARITY: not affected by SOLO rule.
         """
+        solo_categories = self._solo_eligible_categories(normalized_answers or [])
+
         candidates = []
         component_filtered = 0
         category_filtered = 0
-        
+        solo_suppressed = 0
+
         for alignment_id, alignment in self.data_store.alignments.items():
+            atype = alignment["type"]
+
             # CRITICAL: At least ONE component must be in user's selected answers
             alignment_components = set(alignment["components"])
             if not alignment_components.intersection(user_answer_ids):
                 component_filtered += 1
                 continue
-            
+
             # Filter by category (additional constraint)
             alignment_categories = set(alignment["categories"])
             if not alignment_categories.intersection(user_categories):
                 category_filtered += 1
                 continue
-            
+
+            # SOLO rule: suppress if more than one answer selected in this category
+            if atype == "SOLO":
+                alignment_category = alignment["categories"][0] if alignment["categories"] else ""
+                if alignment_category not in solo_categories:
+                    solo_suppressed += 1
+                    continue
+
             # Calculate Euclidean distance in 5D axis space
             distance = self._euclidean_distance(user_profile, alignment["axes"])
-            
+
             candidates.append({
                 "alignment": alignment,
                 "distance": distance,
                 "match_type": "axis_distance"
             })
-        
-        print(f"[DEBUG] Tier 2: Component filter removed {component_filtered}, category filter removed {category_filtered}, kept {len(candidates)} candidates")
+
+        print(f"[DEBUG] Tier 2: Component filter removed {component_filtered}, "
+              f"category filter removed {category_filtered}, "
+              f"SOLO suppressed {solo_suppressed}, kept {len(candidates)} candidates")
         if candidates:
             for i, cand in enumerate(candidates[:5]):
-                print(f"[DEBUG]   Candidate {i+1}: {cand['alignment']['id']} (components: {cand['alignment']['components']}) distance: {cand['distance']:.2f}")
-        
+                print(f"[DEBUG]   Candidate {i+1}: {cand['alignment']['id']} "
+                      f"(type: {cand['alignment']['type']}, "
+                      f"components: {cand['alignment']['components']}) "
+                      f"distance: {cand['distance']:.2f}")
+
         # Sort by distance (closest first)
         candidates.sort(key=lambda x: x["distance"])
-        
+
         return candidates
     
     def _tier3_vector_fallback(
